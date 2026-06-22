@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Debug
+            os: ubuntu-24.04
+            preset: linux-x64-clang
+            build_dir: build/linux-x64-clang
+          - name: Linux RelWithDebInfo
+            os: ubuntu-24.04
+            preset: linux-x64-clang-rwdi
+            build_dir: build/linux-x64-clang-rwdi
+          - name: Windows Debug
+            os: windows-2022
+            preset: win-x64-clang-dbg
+            build_dir: build/win-x64-clang-dbg
+          - name: Windows RelWithDebInfo
+            os: windows-2022
+            preset: win-x64-clang-rwdi
+            build_dir: build/win-x64-clang-rwdi
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf \
+            autoconf-archive \
+            automake \
+            clang \
+            libtool \
+            pkg-config \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxtst-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            wayland-protocols
+
+      - name: Setup LLVM and Clang
+        if: runner.os == 'Windows'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '19'
+          arch: 'x64'
+          directory: 'C:\Program Files\LLVM'
+
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      - name: Configure
+        run: >
+          cmake
+          --preset ${{ matrix.preset }}
+          -DCMAKE_C_COMPILER_LAUNCHER=
+          -DCMAKE_CXX_COMPILER_LAUNCHER=
+
+      - name: Build
+        run: cmake --build ${{ matrix.build_dir }} --parallel 2

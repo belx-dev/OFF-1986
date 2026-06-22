@@ -192,6 +192,7 @@ if(MSVC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_FRONTEN
     foreach(file ${OPTIMIZED_FILES})
         set_source_files_properties(${file} PROPERTIES
             COMPILE_FLAGS "/O2"
+            SKIP_PRECOMPILE_HEADERS ON
         )
     endforeach()
 endif()
