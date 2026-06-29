@@ -1,6 +1,6 @@
 # tests/fixtures/ — shared test data
 
-27+ subfolders of test data spanning proprietary engine formats and standard
+26 subfolders of test data spanning proprietary engine formats and standard
 formats, consumed by `tests/unit/` and `tests/integration/`:
 
 - **Engine formats:** `p3d/`, `mlod/`, `rtm/`, `wrp/`, `paa/`, `pac/`, `pbo/`,
