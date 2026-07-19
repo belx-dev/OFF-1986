@@ -9,8 +9,10 @@ for the harness protocol itself.
 | Dir | Covers |
 |---|---|
 | `flows/` | UI state machines — profile selection, menu navigation (`.seq`/`.test` files) |
+| `helpers/` | Shared SQF helper snippets used by scenarios |
 | `ingame/` | In-mission gameplay scenarios, incl. `audio/`, `save_load/`, `vehicles/` |
 | `missions/` | 15+ `.Demo` mission scenarios (e.g. `demo_end_chain.Demo`, `jip_basic.Demo`) |
+| `mods/` | Mod-loading scenarios |
 | `mp/` | Multiplayer join-in-progress, horn, assignment scenarios |
 | `multiplayer/` | Briefing coordination, server browser |
 | `rendering/` | Rendering-output assertions |

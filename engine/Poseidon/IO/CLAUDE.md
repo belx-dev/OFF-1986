@@ -28,8 +28,10 @@
   a mod's config is even allowed to touch a given base entry — check this
   before assuming a config override will "just work."
 - `QStream` subclasses implement platform-specific file ops and use `LSError`
-  return codes — don't add exception-based error handling here, it breaks
-  the established pattern.
+  return codes, not exceptions *(inherited convention — see root `CLAUDE.md`,
+  Modernization posture; today's callers only check `LSError`, so mixing in
+  exceptions piecemeal breaks error propagation — an error-handling
+  modernization would have to convert the `QStream` call graph coherently)*.
 - `SerializeBin` formats are endian-aware and version/checksum-tagged; bump
   version deliberately if you change a serialized struct's layout.
 

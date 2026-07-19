@@ -17,8 +17,10 @@ typically deployed separately).
 - `src/mods.rs` — `ModStore` (local filesystem or S3 via `object_store`).
 - `src/probe.rs` — reachability prober; uses `mserver/Client`'s `query_server()`.
 - `web/` — HTML shell pages (`index.html`, `browser.html`, `browser-detail.html`,
-  `mods.html`, `mod-detail.html`) + `web/assets/papa-bear.js` (client-side nav/polling).
-- `dev-data/dev_mods_seed.csv` — 121-row seed dataset for local `--dev` startup.
+  `mods.html`, `mod-detail.html`) + `web/assets/` (`papa-bear.js` client-side
+  nav/polling, `site.css`).
+- `dev-data/dev_mods_seed.csv` — 120-row (plus header) synthetic seed dataset
+  for local `--dev` startup.
 
 ## Config (CLI flags)
 

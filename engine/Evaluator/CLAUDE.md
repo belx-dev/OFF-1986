@@ -7,9 +7,11 @@ CMake target of its own (engine-internal, header+source consumed directly by
 
 ## Key files
 
-- `express.hpp` — core types: `GameState`, `GameValue`, operators (~31KB header).
-- `express.cpp` — parser + evaluator implementation (~92KB).
+- `express.hpp` — core types: `GameState`, `GameValue`, operators (~30KB header).
+- `express.cpp` — parser + evaluator implementation (~90KB).
 - `EvalState.hpp`/`.cpp` — evaluator state container.
+- `EvaluatorHost.hpp`/`.cpp` + `EvaluatorRuntimeAnchor.cpp`/`EvaluatorRuntimeStubs.cpp` —
+  host embedding glue and runtime stubs for standalone (non-engine) use.
 - `MockObjects.hpp` — test doubles for game entities, used in unit tests.
 - `Validate.hpp`/`.cpp` — validates book/reference-doc SQF examples against the real evaluator.
 - `SqsRunner.hpp`/`.cpp` — runs `.sqs` script tests.

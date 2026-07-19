@@ -39,7 +39,10 @@ Backend-pluggable: this subsystem defines the interface + state model + a
   disambiguation — don't "fix" this thinking it's a stray sign error.
 - Any new GL state must go through `GLPipelineState`'s `ApplyPipeline`
   pattern, not a direct `glEnable`/`glDisable` call in `PoseidonGL33` — keeps
-  state changes auditable/cacheable.
+  state changes auditable/cacheable. (Unlike most inherited rules, this one is
+  deliberate current architecture worth preserving through modernization —
+  centralized pipeline state is also how a future GL/Vulkan-style backend
+  would want it.)
 - `Dummy` backend exists specifically so `apps/cwr/Server` can run with zero
   graphics dependency — don't add code paths here that assume a real GL context exists.
 

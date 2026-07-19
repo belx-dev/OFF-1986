@@ -27,7 +27,10 @@ Three executables sharing one boot/lifecycle library:
 - `GameApplication::InitializeWorld()` and `RegisterGraphicsBackends()` are
   virtual and overridden by other apps (e.g. `apps/tetris`) to skip AI/vehicle
   simulation entirely — check the override before assuming full-engine boot.
-- Windows needs `/SAFESEH:NO` for legacy external object-file compatibility.
+- Windows links `PoseidonGame`/`PoseidonGameDemo`/`PoseidonServer` with
+  `/SAFESEH:NO` for legacy external object-file compatibility *(inherited
+  constraint — worth revisiting during modernization: once no non-SafeSEH
+  object files remain in the link, the flag can and should go)*.
 - Demo and Tetris both compile `GameApplication.cpp` directly rather than
   linking against `Game` — if you change `GameApplication.cpp`, check all
   in-tree includers, not just `Game`'s own CMake target.

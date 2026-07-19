@@ -11,7 +11,7 @@ navigation context and the custom mission-naming convention.
 | `perf/` | Trident (`tri`) | `tests/perf/CLAUDE.md` | Performance benchmark missions |
 | `smoke/` | Pester (PowerShell) | `tests/smoke/CLAUDE.md` | Quick boot/log verification, Windows-only |
 | `stress/` | Trident (`tri`) | `tests/stress/CLAUDE.md` | Long-running MP soak/chaos tests |
-| `fixtures/` | — | `tests/fixtures/CLAUDE.md` | Shared test data (26 format/domain subfolders) |
+| `fixtures/` | — | `tests/fixtures/CLAUDE.md` | Shared test data (27 format/domain subfolders) |
 
 ## Running
 

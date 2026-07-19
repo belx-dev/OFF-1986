@@ -12,7 +12,9 @@ Build with `cargo build --manifest-path engine/Trident/Cargo.toml`, not CMake.
 - `src/client/connection.rs` — `HarnessClient`, the TCP protocol implementation.
 - `src/scenarios/integration.rs` — discovers and runs `*.test.sqf` files (with TOML metadata) under `tests/integration/`.
 - `src/scenarios/stress.rs` — long-running multiplayer stress scenarios (`tests/stress/`).
-- `protocol/` — JSON harness protocol types (newline-delimited JSON messages).
+- `src/protocol/` — Rust types for the harness protocol (newline-delimited
+  JSON messages); `protocol/harness.schema.json` is the language-neutral JSON
+  Schema for the same wire format.
 - `src/console.rs` — interactive SQF REPL against a running instance.
 
 ## Gotchas

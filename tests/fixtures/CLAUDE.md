@@ -1,7 +1,8 @@
 # tests/fixtures/ — shared test data
 
-26 subfolders of test data spanning proprietary engine formats and standard
-formats, consumed by `tests/unit/` and `tests/integration/`:
+27 subfolders of test data spanning proprietary engine formats and standard
+formats, consumed by `tests/unit/` and `tests/integration/` (see
+`ASSET_SOURCES.md` here for fixture provenance):
 
 - **Engine formats:** `p3d/`, `mlod/`, `rtm/`, `wrp/`, `paa/`, `pac/`, `pbo/`,
   `qstream/`, `savegame/`, `stringtable/` — match the parsers in
@@ -12,8 +13,9 @@ formats, consumed by `tests/unit/` and `tests/integration/`:
 - **Missions:** `missions/`, `mission_smoke/`, `mission_linter/` (incl.
   `valid-mission/`, `unused-synthetic/` cases).
 - **Mods:** `mods/`, `mods-badmodel/`, `mods-configmerge/`, `mods-manymags/`,
-  `workshop/` — each exercises a specific mod-loading edge case (bad model,
-  config merge conflicts, large magazine counts, workshop packaging).
+  `mods-mp-missions/`, `workshop/` — each exercises a specific mod-loading
+  edge case (bad model, config merge conflicts, large magazine counts,
+  MP mission packaging, workshop packaging).
 - **Tools:** `evaluator/` (`validate_book/`, `validate_ref/` — SQF doc-example
   validation fixtures), `studio/`.
 

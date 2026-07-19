@@ -41,8 +41,10 @@ Most major UI areas follow a **module pattern**: a `*Module.hpp` with a
 - `LookupStringtableCsv` is deliberately separate from the global
   `LocalizeString` path so per-mission strings don't leak into global state —
   use it (not a manual table merge) for mission-scoped strings.
-- New UI surfaces should follow the existing Module pattern
-  (`*Module.hpp` + `Register()`) for consistency with Editor/Campaigns/Multiplayer/Mods.
+- New UI surfaces follow the existing Module pattern (`*Module.hpp` +
+  `Register()`) by default, matching Editor/Campaigns/Multiplayer/Mods
+  *(inherited convention — a redesigned UI framework may supersede it; see
+  root `CLAUDE.md`, Modernization posture)*.
 
 ## Tests
 

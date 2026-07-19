@@ -4,6 +4,16 @@ Everything else in the engine depends on this. Replaces STL with custom
 containers/strings/memory; read this before touching anything else in
 `Poseidon` if you're not already familiar with the codebase's idioms.
 
+The custom-container/no-STL design is an *inherited convention* from the
+original engine, and already non-uniform in this fork — a substantial minority
+of `Poseidon` files (including some here in `Foundation/`) use
+`std::vector`/`std::string` today (see root `CLAUDE.md`, Modernization
+posture). Follow the surrounding file's style for routine edits, but migrating
+a custom container/string type to a standard equivalent is a legitimate
+modernization target when done deliberately and completely for that type, with
+callers updated. The gotchas below, by contrast, are technical invariants of
+the current implementation, not style preferences.
+
 ## Subfolder map
 
 | Dir | Contents |
