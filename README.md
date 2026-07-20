@@ -1,9 +1,10 @@
-# Arma: Cold War Assault - Remastered - Community Edition
+# Operation Frontier Fury
 
-_based on https://github.com/bohemiainteractive/CWR_
+_An experiemental modernisation fork of https://github.com/ofpisnotdead-com/CWR-CE_
 
-This community repository continues the official engine and game source code (codename *Poseidon*) behind *Arma: Cold War Assault* — the game first released in 2001 as *Operation Flashpoint: Cold War Crisis*. That release launched Bohemia Interactive and began the technology lineage that later grew into Real Virtuality, Arma, and Enfusion. The code has been modernized to C++20, built with CMake and Clang, with cross-platform support for Windows x64 and Linux x64.
-Bohemia Interactive released it to the community that has kept this game alive for more than two decades — to study it, build on it, fix it, and create from it. Three things are worth keeping separate:
+## About Arma: Cold War Assault - Remastered - Community Edition
+
+CWR-CE repository continues the official engine and game source code (codename *Poseidon*) behind *Arma: Cold War Assault* — the game first released in 2001 as *Operation Flashpoint: Cold War Crisis*. That release launched Bohemia Interactive and began the technology lineage that later grew into Real Virtuality, Arma, and Enfusion. The code has been modernized to C++20, built with CMake and Clang, with cross-platform support for Windows x64 and Linux x64.
 
 **Source code (this repository)**
 
@@ -68,7 +69,6 @@ Copy game binaries from `dist/` into [Steam Demo folder](https://store.steampowe
 
 ## Project Notes
 
-- [Contributing](CONTRIBUTING.md)
 - [Credits](CREDITS.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Vendored dependencies](thirdparty/README.md)
@@ -108,14 +108,3 @@ data** on Steam:
 The full game data ships with the retail game. Whatever you do with assets is
 governed by the APL-SA linked above; whatever you do with this source is governed by
 the GPL with additional terms per Section 7 in [`LICENSE`](LICENSE).
-
-
-## Contributing
-
-This is the community continuation of the official source release. Pull requests,
-bug reports, ports, tooling improvements, documentation updates, and development
-ideas are welcome here.
-
-Please use issues for bugs and proposals, and open pull requests for source,
-build, test, or documentation changes. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
-for contribution guidelines.
