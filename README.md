@@ -1,4 +1,4 @@
-# Operation Frontier Fury
+# Operation Frontier Fury 1986
 
 _An experiemental modernisation fork of https://github.com/ofpisnotdead-com/CWR-CE_
 
