@@ -2,7 +2,7 @@
 
 | Dir | Target | Type | Purpose |
 |---|---|---|---|
-| `Tools/` | `PoseidonTools` | console exe | Swiss-army CLI: model/image/PBO/terrain/font/sound/config/stringtable/SQF-lint/scan/mine/input/von/shadow commands (`Tools/commands/*.cpp`, one file per command, dispatched via CLI11 in `Tools/main.cpp`). `SDLPreview.cpp` provides an SDL3 preview window for asset inspection. |
+| `Tools/` | `PoseidonTools` | console exe | Swiss-army CLI: model/image/PBO/terrain/font/sound/config/stringtable/version/mission-lint/scan/mine/input/von/shadow commands (`Tools/commands/*.cpp`, one file per command, dispatched via CLI11 in `Tools/main.cpp`; `input` is POSIX-only, guarded by `#ifndef _WIN32`). `lint` validates mission folders (mission.sqm/description.ext), not SQF scripts. `SDLPreview.cpp` provides an SDL3 preview window for asset inspection. |
 | `Evaluator/Cli/` | `PoseidonEvaluator` | console exe | Standalone SQF REPL — `Cli/main.cpp` drives the engine's `engine/Evaluator` scripting evaluator in isolation, no graphics/audio. |
 | `Studio/` | `PoseidonStudio` | GUI exe | ImGui+SDL3 interactive asset/editor shell (`StudioApp.cpp`). Links full graphics+audio backends plus FreeType for text. |
 | `TcPbo/` | `TcPbo` (module, output name `pbo`/.wcx) | plugin | Total Commander packer plugin for browsing/extracting PBO archives (`tc_pbo.cpp`, `wcxhead.h`). |

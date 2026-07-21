@@ -24,9 +24,11 @@ Three executables sharing one boot/lifecycle library:
 
 ## Gotchas
 
-- `GameApplication::InitializeWorld()` and `RegisterGraphicsBackends()` are
-  virtual and overridden by other apps (e.g. `apps/tetris`) to skip AI/vehicle
-  simulation entirely — check the override before assuming full-engine boot.
+- `GameApplication::InitializeWorld()` is virtual and overridden by other apps
+  (e.g. `apps/tetris`) to skip AI/vehicle/world simulation entirely —
+  `RegisterGraphicsBackends()` is also virtual but Tetris does *not* override
+  it (still boots the real graphics backend); check `GameApplication.hpp` for
+  the full virtual interface before assuming full-engine boot.
 - Windows links `PoseidonGame`/`PoseidonGameDemo`/`PoseidonServer` with
   `/SAFESEH:NO` for legacy external object-file compatibility *(inherited
   constraint — worth revisiting during modernization: once no non-SafeSEH

@@ -13,7 +13,9 @@ Targets: `fuzz_decode_msg`, `fuzz_rtm`, `fuzz_p3d`, `fuzz_paa`,
 - `fuzz_decode_msg.cpp` targets `NetworkComponent::DecodeMessage()` (the
   server's wire-decode path) — deliberately skips per-message `OnMessage()`
   handlers to keep the fuzz surface to parsing only.
-- Built with ASan+UBSan+SanitizerCoverage; `NDEBUG` is active (matching
+- Built with ASan+SanitizerCoverage on every TU (Linux also adds UBSan; the
+  Windows lane intentionally omits UBSan to keep the signal clean — see
+  `cmake/toolchains/win-x64-clang-fuzz.cmake`). `NDEBUG` is active (matching
   release/server builds) so `PoseidonAssert`/bounds checks compile out and
   real OOB defects surface instead of asserting first.
 - Each harness has its own corpus/crash-seed directory; they are not wired

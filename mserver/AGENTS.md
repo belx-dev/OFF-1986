@@ -4,10 +4,12 @@ Four independent Rust crates (Cargo.toml each, MIT-licensed, Rust 1.79+).
 **Completely standalone from `engine/`/`apps/`** — no build/code dependency,
 only wire-protocol compatibility (the C++ engine implements the protocol
 these crates also implement/consume independently; see
-`engine/Poseidon/Network/AGENTS.md`). This fork has no CI — run
-`cargo fmt --check`, `cargo clippy`, and `cargo test` locally before pushing;
-all four crates deny `unsafe_code` and `clippy::all`, and warn on
-`pedantic`/`nursery` via `[lints]` in each `Cargo.toml`.
+`engine/Poseidon/Network/AGENTS.md`). CI (`.github/workflows/rust.yml`) runs
+`cargo fmt -- --check`, `cargo clippy --all-targets`, `cargo build`, and
+`cargo test` for each crate on both ubuntu and windows — run the same
+locally before pushing. All four crates deny `unsafe_code` and
+`clippy::all`, and warn on `pedantic`/`nursery` via `[lints]` in each
+`Cargo.toml`.
 
 | Crate | Dir | Context file | Role |
 |---|---|---|---|

@@ -7,11 +7,15 @@ exercise rendering/input without full world/AI/vehicle simulation overhead.
 - `WinMain.cpp` — entry point, constructs `TetrisApplication`.
 - `TetrisApplication.cpp`/`.hpp` — subclasses `GameApplication`
   (`apps/cwr/Game/GameApplication.cpp`, compiled in-tree, not linked), but
-  overrides `InitializeWorld()`/`RegisterGraphicsBackends()` to skip
-  AI/vehicle/world init and boot only the rendering engine.
+  overrides `InitializeWorld()` (skips world/landscape/AI/vehicle init),
+  `RegisterAudioBackends()`/`InitializeSound()` (dummy audio backend, no
+  OpenAL device), `RegisterGameModules()`, `ParseCommandLine()`,
+  `InitializeSubsystems()`, and `RunMainLoop()`. It does **not** override
+  `RegisterGraphicsBackends()` — the real graphics backend still boots.
 - `TetrisGame.cpp`/`.hpp` — piece spawn/rotate/collision/scoring logic.
-- `TetrisNotebookUI.cpp` + `NotebookScene.cpp` — ImGui notebook-style overlay UI
-  and its 3D scene.
+- `TetrisNotebookUI.cpp` + `NotebookScene.cpp` — notebook-style overlay UI
+  built on the engine's native `UIControls`/`C3DStatic` display system (not
+  ImGui) and its 3D scene.
 
 Links `Poseidon`, `PoseidonGL33`, `PoseidonOpenAL`, `GameBase` — same backends
 as the real game, just a much narrower runtime surface (aggressive

@@ -12,8 +12,12 @@ shared lib) for cross-language consumers.
 Depends on `Poseidon` (engine core, for the asset loaders + graphics-dummy
 backend it needs to construct them) and `winmm` on the DLL build.
 
-Consumed by: `apps/tools/BlenderAddon` (loads the `.dll`), the Total Commander
-plugins in `apps/tools/TcPbo`/`TcLister`, and `apps/tools/Tools`/`Studio`.
-If you change the binary layout of P3D/PAA/PBO/RTM parsing in
-`engine/Poseidon/Asset/Formats/`, check whether this API's surface needs
-updating too — it's a separate, stability-sensitive boundary for external tools.
+Consumed by: `apps/tools/BlenderAddon` (loads the `.dll` dynamically via
+ctypes) and the unit tests in
+`tests/unit/engine/Poseidon/Asset/Formats/test_poseidon_formats_capi.cpp`
+(link the static lib). The Total Commander plugins (`apps/tools/TcPbo`/
+`TcLister`) and `apps/tools/Tools`/`Studio` link `Poseidon` directly instead of
+going through this C API. If you change the binary layout of P3D/PAA/PBO/RTM
+parsing in `engine/Poseidon/Asset/Formats/`, check whether this API's surface
+needs updating too — it's a separate, stability-sensitive boundary for
+external/cross-language tools (chiefly the Blender addon).

@@ -1,8 +1,12 @@
 # tests/stress/ — multiplayer soak/chaos tests
 
 Trident-driven (`tri`), long-running stability tests under `mp/`. Each
-`*.stress` directory has a `hooks/` subfolder defining injected failure
-behaviors (crash faults, network latency, node restarts):
+`*.stress` directory has a `stress.toml` defining instances/phases; failure
+injection is expressed via `[phases.before_actions]`
+(`start_role`/`stop_role`/`restart_role` — churn/restart) or
+`[phases.toxics]` (toxiproxy-backed network faults, e.g. latency). Some
+scenarios also have a `hooks/` subfolder of SQF assertion scripts run via
+`[phases.after_actions]` to verify post-phase state:
 
 - `basic_soak.stress` — baseline long-duration stability.
 - `von_hosted_two_player.stress` / `von_soak.stress` — voice-chat (VoN) load.

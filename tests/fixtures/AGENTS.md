@@ -4,9 +4,12 @@
 formats, consumed by `tests/unit/` and `tests/integration/` (see
 `ASSET_SOURCES.md` here for fixture provenance):
 
-- **Engine formats:** `p3d/`, `mlod/`, `rtm/`, `wrp/`, `paa/`, `pac/`, `pbo/`,
-  `qstream/`, `savegame/`, `stringtable/` — match the parsers in
-  `engine/Poseidon/Asset/Formats/` (see `engine/Poseidon/Asset/AGENTS.md`).
+- **Engine formats:** `p3d/`, `mlod/`, `rtm/` match the parsers in
+  `engine/Poseidon/Asset/Formats/` (see `engine/Poseidon/Asset/AGENTS.md`);
+  `wrp/`, `paa/`, `pac/`, `pbo/`, `qstream/`, `savegame/`, `stringtable/`
+  match parsers scattered across their owning subsystems instead (e.g.
+  `World/Terrain/WrpReader`, `Graphics/Textures/PAADecoder`,
+  `IO/Streams/QStream`, `UI/Locale/Stringtable/Stringtable`).
 - **Standard formats:** `audio/` (incl. voice-lang/voice-lang-campaign/wave-to-lip
   subsets), `font/`, `jpg/`, `xml/`.
 - **Config:** `cfg/`, `config/`.

@@ -1,9 +1,11 @@
-# Operation Frontier Fury 1985
+# Operation Frontier Fury 1986
 
-An experimental fork of [BohemiaInteractive/CWR](https://github.com/BohemiaInteractive/CWR)
-(Arma: Cold War Assault Remastered) — a large C++20 game engine (codename
-**Poseidon**) plus Rust tooling (codename **Trident**) and a Rust master-server
-stack (**mserver**, codename "PAPA BEAR").
+An experimental modernization fork of
+[ofpisnotdead-com/CWR-CE](https://github.com/ofpisnotdead-com/CWR-CE) (itself a
+community continuation of BohemiaInteractive/CWR, "Arma: Cold War Assault
+Remastered") — a large C++20 game engine (codename **Poseidon**) plus Rust
+tooling (codename **Trident**) and a Rust master-server stack (**mserver**,
+codename "PAPA BEAR").
 
 This file plus a `AGENTS.md` in most subdirectories form a navigation map for
 AI agents. **Read the `AGENTS.md` in the directory you're working in before

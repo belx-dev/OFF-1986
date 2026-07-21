@@ -2,8 +2,9 @@
 
 Byte-compatible PBO (Packed Bank Of files) archive codec — reads/writes
 `.pbo` mod packages compatibly with `engine/Poseidon/IO/Streams/QBStream.cpp`.
-Implements LZSS compression and PBO entry serialization independently in
-Rust (not a binding to the C++ code).
+Implements LZSS decompression and PBO entry serialization independently in
+Rust (not a binding to the C++ code). Only decode is implemented — `pack_dir`
+always writes store-only (uncompressed) PBOs.
 
 - `src/lib.rs` — public API: `Pbo`, `PboEntry`, MIME constants.
 - `src/pbo.rs` — PBO format reader/writer.

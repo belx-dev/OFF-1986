@@ -15,6 +15,7 @@ concrete GL33 + SDL3 backend. Selected via the engine's `GraphicsEngineFactory`
 
 Depends on `Poseidon` and `OpenGL::GL`, with an embedded GLAD loader
 (see `thirdparty/glad`). Linked by GUI targets that request the GL33 backend
-(`apps/cwr/Game`, `GameDemo`, `apps/tetris`, `apps/tools/Studio`/`Tools`).
-`apps/cwr/Server` does not link this — it runs headless against the `Dummy`
-graphics backend in `engine/Poseidon/Graphics/Dummy`.
+(`apps/cwr/Game`, `GameDemo`, `apps/tetris`). `apps/tools/Studio`/`Tools` use
+SDL3 directly for their preview windows and do not link this.
+`apps/cwr/Server` does not link this either — it runs headless against the
+`Dummy` graphics backend in `engine/Poseidon/Graphics/Dummy`.

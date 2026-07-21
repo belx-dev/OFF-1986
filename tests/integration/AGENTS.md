@@ -13,7 +13,7 @@ for the harness protocol itself.
 | `ingame/` | In-mission gameplay scenarios, incl. `audio/`, `save_load/`, `vehicles/` |
 | `missions/` | 15+ `.Demo` mission scenarios (e.g. `demo_end_chain.Demo`, `jip_basic.Demo`) |
 | `mods/` | Mod-loading scenarios |
-| `mp/` | Multiplayer join-in-progress, horn, assignment scenarios |
+| `mp/` | `jip_stress.Demo` — JIP mission fixture consumed by `tests/stress/mp/*.stress` scenarios (JIP scenarios themselves live under `missions/`, e.g. `jip_basic.Demo`, `mp_horn.Demo`) |
 | `multiplayer/` | Briefing coordination, server browser |
 | `rendering/` | Rendering-output assertions |
 | `scripting/` | SQF scripting-engine scenarios |

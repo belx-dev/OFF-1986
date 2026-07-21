@@ -6,7 +6,9 @@ probing game-server status, transcribed from the engine's
 server-status queries. Phase 2 (planned): C ABI export for direct engine consumption.
 
 - `src/lib.rs` — public modules: `codec`, `framing`, `query`.
-- `src/codec.rs` — `EnumPacket`/`SessionPacket` encoding, engine-compatible `#[repr(packed)]` little-endian layout.
+- `src/codec.rs` — `EnumPacket`/`SessionPacket` encoding via manual little-endian
+  byte offsets (no `#[repr(packed)]` struct — offsets are computed constants,
+  matching `unsafe_code = "deny"`).
 - `src/query.rs` — `query_server()`, a live UDP round-trip probe.
 - `examples/probe.rs` — example usage.
 

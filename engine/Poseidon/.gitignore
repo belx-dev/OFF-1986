@@ -38,8 +38,3 @@ lib/lib___Win32_*/
 
 # Temporary files
 tmp/
-
-# Keep documentation
-*.md
-!CLAUDE.md
-!**/CLAUDE.md

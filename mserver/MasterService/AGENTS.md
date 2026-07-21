@@ -10,7 +10,7 @@ typically deployed separately).
 
 - `src/main.rs` — CLI entry; `server`/`probe` subcommands.
 - `src/http.rs` — Axum router, all `/v1/*` API endpoints + web-shell routes.
-- `src/lib.rs` — exported modules: `service`, `repository`, `model`, `mods`, `dev_seed`.
+- `src/lib.rs` — exported modules: `http`, `service`, `repository`, `model`, `mods`, `dev_seed`.
 - `src/service.rs` — business logic (register/heartbeat/list/observe servers; list/get/publish mods).
 - `src/repository.rs` — `SqliteServerDirectory` (SQLite + schema migration;
   also supports Postgres via SQLx's `Any` pool with placeholder rewriting).
