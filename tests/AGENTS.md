@@ -5,13 +5,13 @@ navigation context and the custom mission-naming convention.
 
 | Dir | Framework | Context file | What |
 |---|---|---|---|
-| `unit/` | Catch2 + ImGui Test Engine | `tests/unit/CLAUDE.md` | C++ unit tests, mirrors `engine/`+`apps/` source tree 1:1 |
-| `integration/` | Trident (`tri`) | `tests/integration/CLAUDE.md` | SQF-driven in-game scenarios: missions, MP, UI flows, rendering |
-| `e2e/` | Trident (`tri`) | `tests/e2e/CLAUDE.md` | Master-server/launcher-level scenarios |
-| `perf/` | Trident (`tri`) | `tests/perf/CLAUDE.md` | Performance benchmark missions |
-| `smoke/` | Pester (PowerShell) | `tests/smoke/CLAUDE.md` | Quick boot/log verification, Windows-only |
-| `stress/` | Trident (`tri`) | `tests/stress/CLAUDE.md` | Long-running MP soak/chaos tests |
-| `fixtures/` | — | `tests/fixtures/CLAUDE.md` | Shared test data (27 format/domain subfolders) |
+| `unit/` | Catch2 + ImGui Test Engine | `tests/unit/AGENTS.md` | C++ unit tests, mirrors `engine/`+`apps/` source tree 1:1 |
+| `integration/` | Trident (`tri`) | `tests/integration/AGENTS.md` | SQF-driven in-game scenarios: missions, MP, UI flows, rendering |
+| `e2e/` | Trident (`tri`) | `tests/e2e/AGENTS.md` | Master-server/launcher-level scenarios |
+| `perf/` | Trident (`tri`) | `tests/perf/AGENTS.md` | Performance benchmark missions |
+| `smoke/` | Pester (PowerShell) | `tests/smoke/AGENTS.md` | Quick boot/log verification, Windows-only |
+| `stress/` | Trident (`tri`) | `tests/stress/AGENTS.md` | Long-running MP soak/chaos tests |
+| `fixtures/` | — | `tests/fixtures/AGENTS.md` | Shared test data (27 format/domain subfolders) |
 
 ## Running
 
@@ -26,7 +26,7 @@ tri test -j6 --retries 2 tests/integration
 ```
 
 Trident-backed tests need `.trident.env` (copy from `.trident.env.example`,
-set `OFPR_GAME_DIR`/`OFPR_DATA_DIR` — see root `CLAUDE.md`). Unit tests
+set `OFPR_GAME_DIR`/`OFPR_DATA_DIR` — see root `AGENTS.md`). Unit tests
 needing game data are tagged `[GameData]`/`[gamescan]`/`[external-data]` and
 skip automatically when `packages/Remaster/` (or configured data dir) is absent.
 

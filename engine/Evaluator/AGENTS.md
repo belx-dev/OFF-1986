@@ -17,6 +17,6 @@ CMake target of its own (engine-internal, header+source consumed directly by
 - `SqsRunner.hpp`/`.cpp` — runs `.sqs` script tests.
 
 Consumed by `engine/Poseidon/Game/Scripting/` (the in-engine scripting bridge —
-see `engine/Poseidon/Game/CLAUDE.md`), the `PoseidonEvaluator` CLI tool, and
+see `engine/Poseidon/Game/AGENTS.md`), the `PoseidonEvaluator` CLI tool, and
 indirectly by `engine/Trident` test scenarios (via the in-game harness, not a
 direct dependency).

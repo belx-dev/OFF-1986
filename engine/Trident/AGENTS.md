@@ -23,6 +23,6 @@ Build with `cargo build --manifest-path engine/Trident/Cargo.toml`, not CMake.
   (compiled into `apps/cwr`), not in this crate — `tri` is only the client/driver.
 - Pure Rust, zero C++ dependency; tokio/clap/serde/tracing stack.
 - Running tests needs `OFPR_GAME_DIR`/`OFPR_DATA_DIR` set (see root
-  `CLAUDE.md` and `.trident.env.example`) — `tri` won't find a binary to
+  `AGENTS.md` and `.trident.env.example`) — `tri` won't find a binary to
   spawn otherwise.
-- See `tests/CLAUDE.md` for how scenarios are organized and named.
+- See `tests/AGENTS.md` for how scenarios are organized and named.

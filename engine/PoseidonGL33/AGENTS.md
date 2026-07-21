@@ -1,7 +1,7 @@
 # engine/PoseidonGL33/ — OpenGL 3.3 rendering backend
 
 Implements the abstract graphics `Engine` interface declared in
-`engine/Poseidon/Graphics/` (see `engine/Poseidon/Graphics/CLAUDE.md`) with a
+`engine/Poseidon/Graphics/` (see `engine/Poseidon/Graphics/AGENTS.md`) with a
 concrete GL33 + SDL3 backend. Selected via the engine's `GraphicsEngineFactory`
 (backend enum includes `Dummy`, `GL33`, `Auto`) at runtime/link time.
 

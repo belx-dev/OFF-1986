@@ -1,7 +1,7 @@
 # thirdparty/ — vendored dependencies
 
 Only two directories are vendored directly in-tree (everything else comes
-via vcpkg, see `vcpkg.json` and root `CLAUDE.md`):
+via vcpkg, see `vcpkg.json` and root `AGENTS.md`):
 
 | Dir | License | Why vendored |
 |---|---|---|

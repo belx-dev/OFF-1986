@@ -6,7 +6,7 @@ formats, consumed by `tests/unit/` and `tests/integration/` (see
 
 - **Engine formats:** `p3d/`, `mlod/`, `rtm/`, `wrp/`, `paa/`, `pac/`, `pbo/`,
   `qstream/`, `savegame/`, `stringtable/` — match the parsers in
-  `engine/Poseidon/Asset/Formats/` (see `engine/Poseidon/Asset/CLAUDE.md`).
+  `engine/Poseidon/Asset/Formats/` (see `engine/Poseidon/Asset/AGENTS.md`).
 - **Standard formats:** `audio/` (incl. voice-lang/voice-lang-campaign/wave-to-lip
   subsets), `font/`, `jpg/`, `xml/`.
 - **Config:** `cfg/`, `config/`.

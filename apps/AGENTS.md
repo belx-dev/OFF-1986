@@ -5,10 +5,10 @@ canonical build-target table; this file adds navigation context.
 
 | Dir | Context file | Summary |
 |---|---|---|
-| `cwr/` | `apps/cwr/CLAUDE.md` | Main game client, demo client, dedicated server — share `GameBase` |
-| `fuzzers/` | `apps/fuzzers/CLAUDE.md` | libFuzzer harnesses for asset/protocol parsers |
-| `tetris/` | `apps/tetris/CLAUDE.md` | Standalone Tetris sample app (engine smoke test / rendering+input demo) |
-| `tools/` | `apps/tools/CLAUDE.md` | Content-pipeline CLIs, ImGui editor (Studio), SQF evaluator REPL, Total Commander plugins, Blender addon |
+| `cwr/` | `apps/cwr/AGENTS.md` | Main game client, demo client, dedicated server — share `GameBase` |
+| `fuzzers/` | `apps/fuzzers/AGENTS.md` | libFuzzer harnesses for asset/protocol parsers |
+| `tetris/` | `apps/tetris/AGENTS.md` | Standalone Tetris sample app (engine smoke test / rendering+input demo) |
+| `tools/` | `apps/tools/AGENTS.md` | Content-pipeline CLIs, ImGui editor (Studio), SQF evaluator REPL, Total Commander plugins, Blender addon |
 
 All GUI/console targets except the Blender addon are C++ and link some subset
 of `engine/Poseidon` (+ `PoseidonGL33`/`PoseidonOpenAL` for anything with

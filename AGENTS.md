@@ -5,10 +5,10 @@ An experimental fork of [BohemiaInteractive/CWR](https://github.com/BohemiaInter
 **Poseidon**) plus Rust tooling (codename **Trident**) and a Rust master-server
 stack (**mserver**, codename "PAPA BEAR").
 
-This file plus a `CLAUDE.md` in most subdirectories form a navigation map for
-AI agents. **Read the `CLAUDE.md` in the directory you're working in before
+This file plus a `AGENTS.md` in most subdirectories form a navigation map for
+AI agents. **Read the `AGENTS.md` in the directory you're working in before
 reading source** — it points at the load-bearing files so you don't have to
-grep the whole tree. Each directory's `CLAUDE.md` complements (does not
+grep the whole tree. Each directory's `AGENTS.md` complements (does not
 replace) any `README.md` already there.
 
 ## Build
@@ -45,7 +45,7 @@ cargo build --manifest-path engine/Trident/Cargo.toml   # build `tri`, then:
 tri test -j6 --retries 2 tests/integration              # SQF scenario tests (needs .trident.env)
 ```
 
-See `tests/CLAUDE.md` for the full test-pyramid map and data-dir requirements.
+See `tests/AGENTS.md` for the full test-pyramid map and data-dir requirements.
 
 ## Running / game data
 
@@ -65,11 +65,11 @@ you actually have.
 
 | Path | What | Context file |
 |---|---|---|
-| `apps/` | Executables: game client, demo client, dedicated server, content-pipeline tools, Blender addon, fuzzers, Tetris sample | `apps/CLAUDE.md` |
-| `engine/` | Static C++ libs (Poseidon core + GL33/OpenAL backends + Formats) and the Rust `Trident` test-runner CLI | `engine/CLAUDE.md` |
-| `mserver/` | Standalone Rust "PAPA BEAR" master-server stack (HTTP service, CLI, client SDK, PBO archive lib) — independent of engine/apps except wire-protocol compatibility | `mserver/CLAUDE.md` |
-| `tests/` | Catch2 unit tests, Trident SQF integration scenarios, Pester smoke tests, perf/stress missions, fixtures | `tests/CLAUDE.md` |
-| `thirdparty/` | Vendored `glad` (GL loader) and `renderdoc` (capture API header) — excluded from repo's GPL license | `thirdparty/CLAUDE.md` |
+| `apps/` | Executables: game client, demo client, dedicated server, content-pipeline tools, Blender addon, fuzzers, Tetris sample | `apps/AGENTS.md` |
+| `engine/` | Static C++ libs (Poseidon core + GL33/OpenAL backends + Formats) and the Rust `Trident` test-runner CLI | `engine/AGENTS.md` |
+| `mserver/` | Standalone Rust "PAPA BEAR" master-server stack (HTTP service, CLI, client SDK, PBO archive lib) — independent of engine/apps except wire-protocol compatibility | `mserver/AGENTS.md` |
+| `tests/` | Catch2 unit tests, Trident SQF integration scenarios, Pester smoke tests, perf/stress missions, fixtures | `tests/AGENTS.md` |
+| `thirdparty/` | Vendored `glad` (GL loader) and `renderdoc` (capture API header) — excluded from repo's GPL license | `thirdparty/AGENTS.md` |
 | `cmake/` | Presets, toolchains, vcpkg triplets/overlay ports, build helpers (file-size lint, sanitizer discovery, Catch2/Trident CTest registration) | — (see files directly, small/self-explanatory) |
 | `docker/` | `papa-bear-master-service` (mserver build/runtime image) and `steamrt4` (Linux compat build environment) | — |
 | `resources/` | Application icon resources only | — |
@@ -78,7 +78,7 @@ you actually have.
 ## Modernization posture (read this before treating any rule as binding)
 
 This fork's purpose is to **modernize the engine**. The conventions documented
-in this file and in every subdirectory `CLAUDE.md` are *descriptions of the
+in this file and in every subdirectory `AGENTS.md` are *descriptions of the
 inherited codebase* (originally written for the upstream CWR remaster), not
 immutable law. Treat them as two distinct categories:
 
@@ -95,10 +95,10 @@ immutable law. Treat them as two distinct categories:
    idioms makes the code better, propose or do it; don't contort a new design
    to fit a 2001-era pattern. When you intentionally change a convention,
    migrate coherently (whole file/subsystem, not a mixed style) and update the
-   affected `CLAUDE.md` so future sessions see the new rule.
+   affected `AGENTS.md` so future sessions see the new rule.
 
-Sub-`CLAUDE.md` files mark inherited rules with wording like "*inherited
-convention — see root CLAUDE.md, Modernization posture*". Where a doc says
+Sub-`AGENTS.md` files mark inherited rules with wording like "*inherited
+convention — see root AGENTS.md, Modernization posture*". Where a doc says
 "don't do X", read it as "X breaks something today — understand the listed
 reason before doing X as part of a deliberate modernization."
 
@@ -112,11 +112,11 @@ reason before doing X as part of a deliberate modernization."
   freely use `std::vector`/`std::string`. For routine edits, match the file
   you're editing; converting legacy code to STL is a legitimate modernization
   step when done coherently per type/subsystem (see Modernization posture
-  above and `engine/Poseidon/Foundation/CLAUDE.md`).
+  above and `engine/Poseidon/Foundation/AGENTS.md`).
 - **Scripting language is SQF** (mission scripts), evaluated by
   `engine/Evaluator/` + `engine/Poseidon/Game/Scripting/`. Mission/test fixtures
   use custom extensions (`.Demo`, `.eden`, `.abel`, `.noe`, `.cain`, `.seq`,
-  `.test`, `.stress`) — see `tests/CLAUDE.md`.
+  `.test`, `.stress`) — see `tests/AGENTS.md`.
 - **Three languages, three build systems in one repo:** C++ (CMake/vcpkg) for
   `engine/`+`apps/`, Rust (Cargo) for `engine/Trident` and all of `mserver/`,
   Python for the Blender addon under `apps/tools/BlenderAddon/`.

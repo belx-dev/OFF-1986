@@ -2,7 +2,7 @@
 
 Trident-driven (`tri`) benchmark missions under `missions/`, each a mission
 directory (`mission.sqm` + assets) with a name encoding scenario type (see
-`tests/CLAUDE.md` for the extension convention):
+`tests/AGENTS.md` for the extension convention):
 
 - `perf_abel.abel` — combat-focused benchmark.
 - `perf_combat.eden` — combat in open terrain.

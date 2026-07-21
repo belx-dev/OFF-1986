@@ -1,7 +1,7 @@
 # engine/PoseidonOpenAL/ — OpenAL audio backend
 
 Implements the abstract audio interface declared in `engine/Poseidon/Audio/`
-(see `engine/Poseidon/Audio/CLAUDE.md`): sound mixing/playback, voice-over-network
+(see `engine/Poseidon/Audio/AGENTS.md`): sound mixing/playback, voice-over-network
 (VoN) capture/playback, and microphone loopback.
 
 ## Key files
