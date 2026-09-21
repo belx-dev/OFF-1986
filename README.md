@@ -1,6 +1,6 @@
 # Operation Frontier Fury 1986
 
-_An experiemental modernisation fork of https://github.com/ofpisnotdead-com/CWR-CE_
+_This repo is a fork of https://github.com/ofpisnotdead-com/CWR-CE. I've created mainly for my own experimentaion and learning about game engines. Maybe one day I'll realease a feature that will interesting. Ideas are pentiful but at this stage, I'm just learning C before any actual work can start:)_
 
 ## About Arma: Cold War Assault - Remastered - Community Edition
 
