@@ -1,6 +1,8 @@
 #include <Poseidon/UI/Map/UIMap.hpp>
 using namespace Poseidon;
 #include <Poseidon/Core/Config/EngineConfig.hpp>
+#include <Poseidon/UI/Locale/Stringtable/CodepageTranscode.hpp>
+#include <Poseidon/UI/Locale/Stringtable/Stringtable.hpp>
 #include <Poseidon/Core/Config/UserConfig.hpp>
 #include <Poseidon/Core/resincl.hpp>
 #include <Poseidon/World/Terrain/Landscape.hpp>
@@ -19,10 +21,11 @@ using namespace Poseidon;
 #include <Poseidon/Game/Chat.hpp>
 #include <Poseidon/Audio/DynSound.hpp>
 #include <Poseidon/UI/Locale/MissionHtmlLocalization.hpp>
+#include <Poseidon/Network/NetworkServerCommon.hpp>
 #include <Poseidon/UI/DisplayUI.hpp>
+#include <set>
 #include <Poseidon/UI/DisplayUICommon.hpp>
 #include <Poseidon/UI/OptionsUICommon.hpp>
-#include <Poseidon/Foundation/Strings/Mbcs.hpp>
 #include <Poseidon/Core/SaveVersion.hpp>
 #include <Poseidon/Core/Version.hpp>
 #include <Poseidon/Foundation/Strings/Bstring.hpp>
@@ -372,6 +375,8 @@ CSessions::CSessions(ControlsContainer* parent, int idc, const ParamEntry& cls) 
 
 void CSessions::DrawItem(Vector3Par position, Vector3Par down, int i, float alpha)
 {
+    constexpr MultiplayerSessionRowLayout layout = GetMultiplayerSessionRowLayout();
+
     // i is the display row (BeginRow position + selection); a is the actual session
     // it maps to through the shared filter layer (identity when no filter is active).
     const int a = VisibleRow(i);
@@ -382,7 +387,7 @@ void CSessions::DrawItem(Vector3Par position, Vector3Par down, int i, float alph
         alpha *= (15.0 - age) * (1.0 / 5.0);
     }
 
-    C3DTableRow row = BeginRow(position, down, i, alpha, 0.05, 0.4, true);
+    C3DTableRow row = BeginRow(position, down, i, alpha, layout.primaryTop, layout.primarySize, true);
     PackedColor color = row.color;
 
     // icon (sits inside the left of the name column)
@@ -485,7 +490,7 @@ void CSessions::DrawItem(Vector3Par position, Vector3Par down, int i, float alph
     row.DrawColumn(0.08, Format("%d", _sessions[a].ping), color);
 
     // second line (no selection redraw)
-    C3DTableRow row2 = BeginRow(position, down, i, alpha, 0.5, 0.4, false);
+    C3DTableRow row2 = BeginRow(position, down, i, alpha, layout.secondaryTop, layout.secondarySize, false);
 
     // versions (actual + required, second offset by the first text width)
     {
@@ -495,7 +500,7 @@ void CSessions::DrawItem(Vector3Par position, Vector3Par down, int i, float alph
         float ver = 0.01f * _sessions[a].actualVersion;
         saturateMax(ver, 1.0f);
         const char* remoteTag = _sessions[a].versionTag.GetLength() > 0 ? (const char*)_sessions[a].versionTag : "";
-        snprintf(buffer, sizeof(buffer), "%.1f%s%s", ver, remoteTag[0] != 0 ? "-" : "", remoteTag);
+        snprintf(buffer, sizeof(buffer), "%.2f %s%s", ver, remoteTag[0] != 0 ? "-" : "", remoteTag);
         col = (_sessions[a].badActualVersion || _sessions[a].badTag) ? PackedColor(Color(1, 0, 0, alpha)) : color;
         GEngine->DrawText3D(row2.pos + row2.border * row2.dir, row2.up, row2.right, ClipAll, row2.font, col, DisableSun,
                             buffer, 0, row2.y1ct, x2c, row2.y2ct);
@@ -521,56 +526,162 @@ void CSessions::DrawItem(Vector3Par position, Vector3Par down, int i, float alph
     }
 }
 
-// Compact human-readable size for the catalog Size column.
-static RString FormatModSize(int64_t bytes)
+static RString ModSourceText(const ModRow& mod)
 {
-    if (bytes <= 0)
-        return RString("--");
-    double mb = static_cast<double>(bytes) / (1024.0 * 1024.0);
-    if (mb >= 1024.0)
-        return Format("%.1f GB", mb / 1024.0);
-    return Format("%.1f MB", mb);
+    return LocalizeString(mod.source == ModRowSource::Local ? "STR_DISP_MODS_SOURCE_LOCAL_VALUE"
+                                                            : "STR_DISP_MODS_SOURCE_WORKSHOP_VALUE");
 }
 
-// One catalog row across the notebook surface via the shared C3DTableRow
-// painter. Columns sum to 1.0 of the list width (checkbox .07, Name .31,
-// Source .14, Version .10, Size .13, State .25). Only State takes a colour; the
-// rest use the row base colour (green-CRT _ftColor, or _selColor when selected).
-void CModsList::DrawItem(Vector3Par position, Vector3Par down, int i, float alpha)
+static RString ModStateText(const ModRow& mod)
 {
-    C3DTableRow row = BeginRow(position, down, i, alpha, 0.05, 0.4, true);
-    const ModRow& mod = _modRows[VisibleRow(i)]; // i = display row; map to the actual row
-
-    // "[X]" / "[ ]" — both three glyphs so the box is the same width either way
-    // (a two-space "[  ]" made the empty box wider). Width shared with the click
-    // target (HandleRowClick) so what is drawn lines up with what toggles.
-    row.DrawColumn(kCheckboxColumnWidth, mod.checked ? "[X]" : "[ ]");
-    row.DrawColumn(0.31, mod.name);
-    row.DrawColumn(0.14, mod.source == ModRowSource::Local ? LocalizeString("STR_DISP_MODS_SOURCE_LOCAL_VALUE")
-                                                           : LocalizeString("STR_DISP_MODS_SOURCE_WORKSHOP_VALUE"));
-    row.DrawColumn(0.10, mod.version);
-    row.DrawColumn(0.13, FormatModSize(mod.sizeBytes));
-
-    PackedColor stateColor;
-    RString stateText;
+    if (mod.freshness == ModRowFreshness::UpdateAvailable)
+        return LocalizeStringWithFallback("STR_DISP_MODS_STATE_UPDATE_AVAILABLE", "Update available");
     switch (mod.state)
     {
         case ModRowState::Active:
-            stateText = LocalizeString("STR_DISP_MODS_STATE_ACTIVE");
-            stateColor = PackedColor(Color(0.55, 1.0, 0.55, alpha));
-            break;
+            return LocalizeString("STR_DISP_MODS_STATE_ACTIVE");
         case ModRowState::Downloaded:
-            stateText = LocalizeString("STR_DISP_MODS_STATE_DOWNLOADED");
-            stateColor = PackedColor(Color(0.55, 0.80, 1.0, alpha));
-            break;
+            return LocalizeString("STR_DISP_MODS_STATE_DOWNLOADED");
         case ModRowState::Missing:
         default:
-            // "Available" — known on the workshop catalog but not yet downloaded.
-            stateText = LocalizeString("STR_DISP_MODS_STATE_AVAILABLE");
-            stateColor = PackedColor(Color(1.0, 0.80, 0.45, alpha));
-            break;
+            return LocalizeString("STR_DISP_MODS_STATE_AVAILABLE");
     }
-    row.DrawColumn(0.25, stateText, stateColor);
+}
+
+static RString ModActionText(const ModRow& mod)
+{
+    switch (GetModRowAction(mod))
+    {
+        case ModRowAction::DownloadAndLoad:
+            return LocalizeString("STR_DISP_MODS_ACTION_DOWNLOAD_LOAD");
+        case ModRowAction::UpdateAndLoad:
+            return LocalizeString("STR_DISP_MODS_ACTION_UPDATE_LOAD");
+        case ModRowAction::Load:
+            return LocalizeString("STR_DISP_MODS_ACTION_LOAD");
+        case ModRowAction::Unload:
+            return LocalizeString("STR_DISP_MODS_ACTION_UNLOAD");
+        case ModRowAction::None:
+        default:
+            return RString();
+    }
+}
+
+static constexpr float kModsRowTextTop = 0.10f;
+static constexpr float kModsRowTextSize = 0.76f;
+
+static float MeasureModsText(const CModsList& list, RString text)
+{
+    return list.MeasureTextWidth(text, kModsRowTextSize);
+}
+
+void CModsList::UpdateColumnLayout(const std::array<float, MTCCount>& headerWidths)
+{
+    std::array<float, MTCCount> desiredWidths = {
+        headerWidths[MTCActive], headerWidths[MTCName],  headerWidths[MTCVersion],
+        headerWidths[MTCSource], headerWidths[MTCState], headerWidths[MTCAction],
+    };
+
+    auto includeValue = [&](ModsTableColumn column, RString text)
+    { desiredWidths[column] = std::max(desiredWidths[column], MeasureModsText(*this, text)); };
+    includeValue(MTCActive, LocalizeString("STR_DISP_MODS_ENABLED_ROW"));
+    includeValue(MTCActive, LocalizeString("STR_DISP_MODS_DISABLED_ROW"));
+    includeValue(MTCSource, LocalizeString("STR_DISP_MODS_SOURCE_LOCAL_VALUE"));
+    includeValue(MTCSource, LocalizeString("STR_DISP_MODS_SOURCE_WORKSHOP_VALUE"));
+    includeValue(MTCState, LocalizeString("STR_DISP_MODS_STATE_ACTIVE"));
+    includeValue(MTCState, LocalizeString("STR_DISP_MODS_STATE_DOWNLOADED"));
+    includeValue(MTCState, LocalizeString("STR_DISP_MODS_STATE_AVAILABLE"));
+    includeValue(MTCState, LocalizeStringWithFallback("STR_DISP_MODS_STATE_UPDATE_AVAILABLE", "Update available"));
+    includeValue(MTCAction, LocalizeString("STR_DISP_MODS_ACTION_DOWNLOAD_LOAD"));
+    includeValue(MTCAction, LocalizeString("STR_DISP_MODS_ACTION_UPDATE_LOAD"));
+    includeValue(MTCAction, LocalizeString("STR_DISP_MODS_ACTION_LOAD"));
+    includeValue(MTCAction, LocalizeString("STR_DISP_MODS_ACTION_UNLOAD"));
+
+    for (int i = 0; i < _modRows.Size(); ++i)
+    {
+        const ModRow& mod = _modRows[i];
+        includeValue(MTCName, mod.name);
+        includeValue(MTCVersion, mod.version);
+    }
+
+    const float availableWidth = _right.Size() * ContentWidthFraction();
+    const float padding = 0.02f * availableWidth;
+    for (float& width : desiredWidths)
+        width += padding;
+
+    _columnWidths = AllocateColumnWidths(desiredWidths, MTCName, availableWidth);
+}
+
+std::array<float, MTCCount> CModsList::AllocateColumnWidths(const std::array<float, MTCCount>& desiredWidths,
+                                                            ModsTableColumn mainColumn, float availableWidth)
+{
+    constexpr float minimumWidth = 0.001f;
+    availableWidth = std::max(availableWidth, minimumWidth * MTCCount);
+    float fixedWidth = 0.0f;
+    for (int i = 0; i < MTCCount; ++i)
+        if (i != mainColumn)
+            fixedWidth += std::max(desiredWidths[i], minimumWidth);
+
+    std::array<float, MTCCount> widths;
+    if (fixedWidth < availableWidth - minimumWidth)
+    {
+        for (int i = 0; i < MTCCount; ++i)
+            if (i != mainColumn)
+                widths[i] = std::max(desiredWidths[i], minimumWidth) / availableWidth;
+        widths[mainColumn] = (availableWidth - fixedWidth) / availableWidth;
+    }
+    else
+    {
+        const float fixedAvailable = availableWidth - minimumWidth;
+        for (int i = 0; i < MTCCount; ++i)
+            widths[i] = i == mainColumn ? minimumWidth / availableWidth
+                                        : (std::max(desiredWidths[i], minimumWidth) / fixedWidth) *
+                                              (fixedAvailable / availableWidth);
+    }
+    return widths;
+}
+
+void CModsList::DrawItem(Vector3Par position, Vector3Par down, int i, float alpha)
+{
+    C3DTableRow row = BeginRow(position, down, i, alpha, kModsRowTextTop, kModsRowTextSize, true);
+    const ModRow& mod = _modRows[VisibleRow(i)]; // i = display row; map to the actual row
+
+    const PackedColor enabledColor = PackedColor(Color(0.55, 1.0, 0.55, alpha));
+    const PackedColor disabledColor = PackedColor(Color(0.35, 0.55, 0.35, alpha));
+    const PackedColor pendingColor = PackedColor(Color(1.0, 0.82, 0.30, alpha));
+    const bool pending = HasPendingChange(mod);
+    const PackedColor textColor = pending ? pendingColor : row.color;
+    const bool active = IsModRowActive(mod);
+    row.DrawColumn(_columnWidths[MTCActive],
+                   active ? LocalizeString("STR_DISP_MODS_ENABLED_ROW") : LocalizeString("STR_DISP_MODS_DISABLED_ROW"),
+                   pending ? pendingColor : (active ? enabledColor : disabledColor), true);
+    row.DrawColumn(_columnWidths[MTCName], mod.name, textColor, true);
+    row.DrawColumn(_columnWidths[MTCVersion], mod.version, textColor, true);
+    row.DrawColumn(_columnWidths[MTCSource], ModSourceText(mod), textColor, true);
+
+    PackedColor stateColor;
+    const RString stateText = ModStateText(mod);
+    if (mod.freshness == ModRowFreshness::UpdateAvailable)
+    {
+        stateColor = PackedColor(Color(1.0, 0.80, 0.45, alpha));
+    }
+    else
+    {
+        switch (mod.state)
+        {
+            case ModRowState::Active:
+                stateColor = PackedColor(Color(0.55, 1.0, 0.55, alpha));
+                break;
+            case ModRowState::Downloaded:
+                stateColor = PackedColor(Color(0.55, 0.80, 1.0, alpha));
+                break;
+            case ModRowState::Missing:
+            default:
+                stateColor = PackedColor(Color(1.0, 0.80, 0.45, alpha));
+                break;
+        }
+    }
+    row.DrawColumn(_columnWidths[MTCState], stateText, pending ? pendingColor : stateColor, true);
+    row.DrawColumn(_columnWidths[MTCAction], ModActionText(mod), pendingColor);
 }
 
 struct CmpModsContext
@@ -598,6 +709,12 @@ int CmpMods(const ModRow* a, const ModRow* b, CmpModsContext ctx)
             break;
         case MSCSource:
             value = static_cast<int>(a->source) - static_cast<int>(b->source);
+            break;
+        case MSCActive:
+            value = static_cast<int>(IsModRowActive(*a)) - static_cast<int>(IsModRowActive(*b));
+            break;
+        case MSCAction:
+            value = static_cast<int>(GetModRowAction(*a)) - static_cast<int>(GetModRowAction(*b));
             break;
     }
     return ctx.ascending ? value : -value;
@@ -672,19 +789,7 @@ RString CModsList::BuildModPath(const char* localRoot, const char* workshopRoot)
 // Case-insensitive substring test for the name filter; empty needle matches anything.
 bool CModsList::ContainsNoCase(const char* hay, const char* needle)
 {
-    if (needle == nullptr || needle[0] == 0)
-        return true;
-    if (hay == nullptr)
-        return false;
-    for (const char* h = hay; *h != 0; ++h)
-    {
-        int k = 0;
-        while (needle[k] != 0 && h[k] != 0 && tolower((unsigned char)h[k]) == tolower((unsigned char)needle[k]))
-            ++k;
-        if (needle[k] == 0)
-            return true;
-    }
-    return false;
+    return Poseidon::Foundation::ContainsFoldedUtf8(hay, needle);
 }
 
 struct CmpSessionsContext
@@ -982,6 +1087,9 @@ bool DisplayMultiplayer::BeginModdedJoin(const SessionInfo& info)
     // Stash the target — the guid is "address:port".
     _joinGuid = info.guid;
     _joinServerMod = info.mod;
+    _joinServerPackages.clear();
+    for (int i = 0; i < info.modPackages.Size(); ++i)
+        _joinServerPackages.emplace_back((const char*)info.modPackages[i].modId, info.modPackages[i].packageRevision);
     _joinServerEqualMod = info.equalModRequired;
     std::string guid = (const char*)info.guid;
     _joinTargetIp = guid.c_str();
@@ -1003,23 +1111,26 @@ bool DisplayMultiplayer::BeginModdedJoin(const SessionInfo& info)
         std::vector<MasterServerServiceModCatalogEntry> mods;
         if (FetchMasterServerServiceModList(host.c_str(), nullptr, proxy.empty() ? nullptr : proxy.c_str(), mods))
         {
+            catalog.MarkReachable();
             for (const auto& m : mods)
                 catalog.Add(Poseidon::ModCatalogEntry(Poseidon::ModId(m.modId), m.name, m.downloadUrl, m.sizeBytes,
-                                                      m.folderName));
+                                                      m.folderName, m.packageRevision, m.sha256, m.version));
         }
     }
 
     // Installed (both roots) + active (current mount path).
-    std::vector<Poseidon::ModId> installed;
+    std::vector<Poseidon::InstalledModPackage> installed;
     for (const auto& m : Poseidon::ScanModsRoot(Poseidon::ModsLocalRoot(), Poseidon::ModSource::Local))
-        installed.emplace_back(m.catalogId.empty() ? m.id : m.catalogId);
+        installed.push_back({Poseidon::ModId(m.catalogId.empty() ? m.id : m.catalogId), m.packageRevision});
     for (const auto& m : Poseidon::ScanModsRoot(Poseidon::ModsWorkshopRoot(), Poseidon::ModSource::Workshop))
-        installed.emplace_back(m.catalogId.empty() ? m.id : m.catalogId);
+        installed.push_back({Poseidon::ModId(m.catalogId.empty() ? m.id : m.catalogId), m.packageRevision});
     std::vector<Poseidon::ModId> active;
     for (const auto& m : Poseidon::ActiveModsFromMountPath((const char*)Poseidon::ModSystem::GetModList()).All())
         active.emplace_back(m.catalogId.empty() ? m.id : m.catalogId);
 
-    const Poseidon::ServerModList required((const char*)info.mod, info.equalModRequired);
+    const Poseidon::ServerModList required = _joinServerPackages.empty()
+                                                 ? Poseidon::ServerModList((const char*)info.mod, info.equalModRequired)
+                                                 : Poseidon::ServerModList(_joinServerPackages, info.equalModRequired);
     const Poseidon::ServerModResolution res = Poseidon::ServerModResolver(installed, active).Resolve(required, catalog);
 
     // Already-mounted check: does the engine's current mount path already equal the
@@ -1037,17 +1148,29 @@ bool DisplayMultiplayer::BeginModdedJoin(const SessionInfo& info)
     }
     if (action == Poseidon::MpJoinAction::Blocked)
     {
-        CreateMsgBox(MB_BUTTON_OK, LocalizeString(IDS_MSG_MP_VERSION));
+        if (_joinServerPackages.empty())
+            CreateMsgBox(MB_BUTTON_OK, LocalizeString(IDS_MSG_MP_VERSION));
+        else
+            CreateMsgBox(MB_BUTTON_OK,
+                         res.BlockReason() == Poseidon::MpJoinBlockReason::ServerOutdated
+                             ? LocalizeStringWithFallback("STR_DISP_MODS_JOIN_SERVER_OUTDATED",
+                                                          "This server is running an older mod revision. The server "
+                                                          "must update before you can join.")
+                             : LocalizeStringWithFallback("STR_DISP_MODS_JOIN_REVISION_UNAVAILABLE",
+                                                          "A mod revision required by this server is unavailable. You "
+                                                          "cannot join this server."));
         return true;
     }
 
     // Download / ApplyThenConnect: stash the work and show the one-screen requirements
     // dialog (diff + password). Approving it chains to the download (if any) + apply.
     _joinTasks.clear();
+    Poseidon::DiscardStagedModInstalls(_joinStagedInstalls);
     const std::string root = Poseidon::ModsWorkshopRoot();
     for (const Poseidon::ModDownload& d : res.ToDownload())
-        _joinTasks.push_back(
-            Poseidon::MakeModDownloadTask(d.id.Value(), d.name, d.downloadUrl, d.sizeBytes, root, d.folderName));
+        _joinTasks.push_back(Poseidon::MakeModDownloadTask(d.id.Value(), d.name, d.downloadUrl, d.sizeBytes, root,
+                                                           _joinStagedInstalls, d.folderName, d.version,
+                                                           d.packageRevision, d.sha256));
 
     std::string diff = (const char*)LocalizeString("STR_DISP_MODS_JOIN_REQUIRES");
     diff += "\n";
@@ -1083,10 +1206,35 @@ void DisplayMultiplayer::ApplyModdedJoin()
     Poseidon::ModLoader loader;
     loader.AddRoot(Poseidon::ModsLocalRoot(), Poseidon::ModSource::Local);
     loader.AddRoot(Poseidon::ModsWorkshopRoot(), Poseidon::ModSource::Workshop);
-    const Poseidon::ServerModList required((const char*)_joinServerMod, _joinServerEqualMod);
-    const std::string path = loader.Load().MountPathForIds(required.Required());
+    const Poseidon::ServerModList required =
+        _joinServerPackages.empty() ? Poseidon::ServerModList((const char*)_joinServerMod, _joinServerEqualMod)
+                                    : Poseidon::ServerModList(_joinServerPackages, _joinServerEqualMod);
+    const Poseidon::ModCollection installed = loader.Load();
+    std::string path;
+    for (const Poseidon::ModId& id : required.Required())
+    {
+        const Poseidon::Mod* mod = installed.Find(id.Value());
+        std::string destination = mod != nullptr ? mod->path : std::string();
+        if (destination.empty())
+        {
+            for (const Poseidon::StagedModInstall& staged : _joinStagedInstalls)
+            {
+                if (Poseidon::ModId(staged.modId) == id)
+                {
+                    destination = staged.destinationDir;
+                    break;
+                }
+            }
+        }
+        if (!destination.empty())
+        {
+            if (!path.empty())
+                path += ';';
+            path += destination;
+        }
+    }
     Poseidon::GPendingConnect().Arm((const char*)_joinTargetIp, _joinTargetPort, (const char*)_password);
-    GApp->RequestRemountWithMods(path.c_str());
+    GApp->RequestRemountWithMods(path.c_str(), std::move(_joinStagedInstalls));
 }
 
 void DisplayMultiplayer::OnButtonClicked(int idc)
@@ -1398,8 +1546,8 @@ void DisplayMultiplayer::OnChildDestroyed(int idd, int exit)
                 if (!_joinTasks.empty())
                 {
                     const std::string proxy = (const char*)GetNetworkProxy();
-                    CreateChild(new DisplayModDownload(this, std::move(_joinTasks),
-                                                       Poseidon::MakeModDownloadTransport(proxy), "mod"));
+                    CreateChild(
+                        new DisplayModDownload(this, std::move(_joinTasks), Poseidon::MakeModDownloadTransport(proxy)));
                     _joinTasks.clear();
                 }
                 else
@@ -1417,6 +1565,10 @@ void DisplayMultiplayer::OnChildDestroyed(int idd, int exit)
             if (exit == IDC_OK)
             {
                 ApplyModdedJoin();
+            }
+            else
+            {
+                Poseidon::DiscardStagedModInstalls(_joinStagedInstalls);
             }
             break;
         default:
@@ -1666,6 +1818,15 @@ void DisplayMultiplayer::UpdateServerList()
         dst.maxPlayers = info.maxPlayers;
         dst.timeleft = info.timeLeft;
         dst.mod = info.mod;
+        if (info.modPackages != nullptr)
+        {
+            for (const Poseidon::MasterServerServiceModPackage& package : *info.modPackages)
+            {
+                SessionModPackage& item = dst.modPackages[dst.modPackages.Add()];
+                item.modId = package.modId.c_str();
+                item.packageRevision = package.packageRevision;
+            }
+        }
         dst.equalModRequired = info.equalModRequired;
 
         if (info.address != nullptr && info.address[0] != 0 && info.hostPort > 0)
@@ -2116,7 +2277,8 @@ Control* DisplayServer::OnCreateCtrl(int type, int idc, const ParamEntry& cls)
                     continue;
                 }
 
-                int index = lbox->AddString(Pars >> "CfgWorlds" >> name >> "description");
+                int index = lbox->AddString(
+                    Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage));
                 lbox->SetData(index, name);
                 if (stricmp(name, Glob.header.worldname) == 0)
                 {
@@ -2162,6 +2324,39 @@ void DisplayServer::OnChangeDifficulty()
 RString CreateMPMissionBank(RString filename, RString island);
 void RemoveBank(const char* prefix);
 
+namespace
+{
+RString EnterMissionFolder(RString folder, RString child)
+{
+    const char sep[2] = {PATH_SEP, 0};
+    return folder.GetLength() == 0 ? child : folder + RString(sep) + child;
+}
+
+RString ParentMissionFolder(RString folder)
+{
+    const char* last = strrchr(folder, PATH_SEP);
+    return last ? RString(std::string((const char*)folder, last - (const char*)folder).c_str()) : RString();
+}
+
+RString LeafMissionFolder(RString folder)
+{
+    const char* last = strrchr(folder, PATH_SEP);
+    return last ? RString(last + 1) : folder;
+}
+} // namespace
+
+RString DisplayServer::MissionSubdir() const
+{
+    // GetMPMissionsDir carries the trailing separator, and the simulate-mode path.
+    RString subdir = GetMPMissionsDir();
+    if (_missionFolder.GetLength() > 0)
+    {
+        char sep[2] = {PATH_SEP, 0};
+        subdir = subdir + _missionFolder + RString(sep);
+    }
+    return subdir;
+}
+
 bool DisplayServer::SetMission(bool editor)
 {
     C3DListBox* lbox = dynamic_cast<C3DListBox*>(GetCtrl(IDC_SERVER_ISLAND));
@@ -2193,7 +2388,7 @@ bool DisplayServer::SetMission(bool editor)
         {
         OnEditor:
             RString userDir = GetUserMissionsBase();
-            SetBaseDirectory(userDir);
+            SetBaseDirectory(true, userDir);
             ::CreateDirectory(GetBaseDirectory() + RString(GameDirs::MPMissions), nullptr);
             ::SetMission(world, "", GetMPMissionsDir());
             return true;
@@ -2230,19 +2425,19 @@ bool DisplayServer::SetMission(bool editor)
             {
                 SetBaseDirectory("");
                 GetNetworkManager().CreateMission("", "");
-                ::SetMission(world, mission, GetMPMissionsDir());
+                ::SetMission(world, mission, MissionSubdir());
             }
             break;
         case 2:
         {
             RString userDir = GetUserMissionsBase();
-            SetBaseDirectory(userDir);
+            SetBaseDirectory(true, userDir);
             ::CreateDirectory(GetBaseDirectory() + RString(GameDirs::MPMissions), nullptr);
             if (!editor)
             {
                 GetNetworkManager().CreateMission("", "");
             }
-            ::SetMission(world, mission, GetMPMissionsDir());
+            ::SetMission(world, mission, MissionSubdir());
         }
         break;
         default:
@@ -2287,7 +2482,22 @@ void DisplayServer::OnButtonClicked(int idc)
                 if (index >= 0)
                 {
                     int value = lbox->GetValue(index);
-                    if (value == -2)
+                    if (value == -1 || value == -4)
+                    {
+                        if (value == -1)
+                        {
+                            _missionFolder = EnterMissionFolder(_missionFolder, lbox->GetData(index));
+                            UpdateMissions();
+                        }
+                        else
+                        {
+                            const RString left = LeafMissionFolder(_missionFolder);
+                            _missionFolder = ParentMissionFolder(_missionFolder);
+                            UpdateMissions(left, -1);
+                        }
+                        break;
+                    }
+                    if (value == -3)
                     {
                         if (!SetMission(true))
                         {
@@ -2302,7 +2512,7 @@ void DisplayServer::OnButtonClicked(int idc)
                         CreateEditor(this, true);
                         break;
                     }
-                    else if (value == -1)
+                    else if (value == -2)
                     {
                         C3DListBox* lbox = dynamic_cast<C3DListBox*>(GetCtrl(IDC_SERVER_ISLAND));
                         if (!lbox)
@@ -2362,6 +2572,8 @@ void DisplayServer::OnLBSelChanged(int idc, int curSel)
 {
     if (idc == IDC_SERVER_ISLAND)
     {
+        // A folder listed for one island need not hold anything for the next.
+        _missionFolder = RString();
         UpdateMissions();
     }
     else if (idc == IDC_SERVER_MISSION)
@@ -2498,12 +2710,109 @@ struct AddModMPMissionsContext
 {
     C3DListBox* lbox;
     RString island;
+    // Category folder to list, empty at the MPMissions root.
+    RString folder;
+    // While set, the scan writes folder names here and adds no rows.
+    std::set<std::string>* folders = nullptr;
 };
 
-void AddModMPMissionFilesInDir(AddModMPMissionsContext* ctx, const char* modDir, const char* missionsDir)
+// A mission directory is named "<mission>.<world>", for any world, so anything without a dot
+// is a category folder. Matches how the single-mission browser reads its own directories.
+bool IsMPMissionDirName(const char* name)
+{
+    return strchr(name, '.') != nullptr;
+}
+
+RString FolderPath(RString root, RString folder)
+{
+    if (folder.GetLength() == 0)
+    {
+        return root;
+    }
+    const char sep[2] = {PATH_SEP, 0};
+    return root + RString(sep) + folder;
+}
+
+bool MPMissionDirMatchesIsland(const char* name, RString island)
+{
+    const char* dot = strrchr(name, '.');
+    return dot && stricmp(dot + 1, island) == 0;
+}
+
+// A folder earns a row only when it holds a mission for the selected island, within the depth
+// the load path looks in.
+bool MPMissionFolderHasIsland(RString dir, RString island, int depth = 1)
 {
     char pattern[1024];
-    snprintf(pattern, sizeof(pattern), "%s%c%s%c*.pbo", modDir, PATH_SEP, missionsDir, PATH_SEP);
+    snprintf(pattern, sizeof(pattern), "%s%c*.pbo", (const char*)dir, PATH_SEP);
+
+    _finddata_t info;
+    intptr_t h = _findfirst(pattern, &info);
+    if (h != -1)
+    {
+        do
+        {
+            if ((info.attrib & _A_SUBDIR) == 0 && MPMissionBankMatchesIsland(info.name, island))
+            {
+                _findclose(h);
+                return true;
+            }
+        } while (0 == _findnext(h, &info));
+        _findclose(h);
+    }
+
+    snprintf(pattern, sizeof(pattern), "%s%c*", (const char*)dir, PATH_SEP);
+    h = _findfirst(pattern, &info);
+    if (h == -1)
+    {
+        return false;
+    }
+    bool found = false;
+    do
+    {
+        if ((info.attrib & _A_SUBDIR) == 0 || info.name[0] == '.')
+        {
+            continue;
+        }
+        const char sep[2] = {PATH_SEP, 0};
+        const RString sub = dir + RString(sep) + RString(info.name);
+        found = IsMPMissionDirName(info.name)
+                    ? MPMissionDirMatchesIsland(info.name, island)
+                    : depth < MaxMPMissionFolderDepth && MPMissionFolderHasIsland(sub, island, depth + 1);
+    } while (!found && 0 == _findnext(h, &info));
+    _findclose(h);
+    return found;
+}
+
+void CollectMPMissionFolders(RString root, RString island, std::set<std::string>& folders)
+{
+    char pattern[1024];
+    snprintf(pattern, sizeof(pattern), "%s%c*", (const char*)root, PATH_SEP);
+
+    _finddata_t info;
+    intptr_t h = _findfirst(pattern, &info);
+    if (h == -1)
+    {
+        return;
+    }
+    do
+    {
+        if ((info.attrib & _A_SUBDIR) != 0 && info.name[0] != '.' && !IsMPMissionDirName(info.name))
+        {
+            const char sep[2] = {PATH_SEP, 0};
+            if (MPMissionFolderHasIsland(root + RString(sep) + RString(info.name), island))
+            {
+                folders.insert(std::string(info.name));
+            }
+        }
+    } while (0 == _findnext(h, &info));
+    _findclose(h);
+}
+
+void ScanMPMissionBanksInDir(AddModMPMissionsContext* ctx, RString dir)
+{
+    char pattern[1024];
+    snprintf(pattern, sizeof(pattern), "%s%c*.pbo", (const char*)dir, PATH_SEP);
 
     _finddata_t info;
     intptr_t h = _findfirst(pattern, &info);
@@ -2520,6 +2829,20 @@ void AddModMPMissionFilesInDir(AddModMPMissionsContext* ctx, const char* modDir,
     }
 }
 
+void AddModMPMissionFilesInDir(AddModMPMissionsContext* ctx, const char* modDir, const char* missionsDir)
+{
+    char base[1024];
+    snprintf(base, sizeof(base), "%s%c%s", modDir, PATH_SEP, missionsDir);
+
+    const RString dir = FolderPath(base, ctx->folder);
+    if (ctx->folders)
+    {
+        CollectMPMissionFolders(dir, ctx->island, *ctx->folders);
+        return;
+    }
+    ScanMPMissionBanksInDir(ctx, dir);
+}
+
 bool AddModMPMissionFiles(RStringB dir, void* context)
 {
     if (dir.GetLength() == 0)
@@ -2528,13 +2851,13 @@ bool AddModMPMissionFiles(RStringB dir, void* context)
     }
 
     auto* ctx = static_cast<AddModMPMissionsContext*>(context);
+    // _findfirst folds case per component, so this spelling also finds "mpmissions".
     AddModMPMissionFilesInDir(ctx, (const char*)dir, GameDirs::MPMissions);
-    AddModMPMissionFilesInDir(ctx, (const char*)dir, "mpmissions");
     return false;
 }
 } // namespace
 
-void DisplayServer::UpdateMissions(RString filename)
+void DisplayServer::UpdateMissions(RString filename, int filenameValue)
 {
     C3DListBox* lbox = dynamic_cast<C3DListBox*>(GetCtrl(IDC_SERVER_ISLAND));
     if (!lbox)
@@ -2551,7 +2874,7 @@ void DisplayServer::UpdateMissions(RString filename)
     }
 
     RString mission = filename;
-    int value = 2;
+    int value = filenameValue;
     if (mission.GetLength() == 0)
     {
         index = lbox->GetCurSel();
@@ -2568,21 +2891,45 @@ void DisplayServer::UpdateMissions(RString filename)
         return;
     }
 
-    if (GameModuleRegistry::IsRegistered(GameModuleId::Editor))
+    const RString scanDir = FolderPath(GameDirs::MPMissions, _missionFolder);
+
+    if (_missionFolder.GetLength() > 0)
+    {
+        index = lbox->AddString("..");
+        lbox->SetValue(index, -4); // parent folder
+    }
+
+    std::set<std::string> folders;
+    AddModMPMissionsContext modFolders;
+    modFolders.lbox = lbox;
+    modFolders.island = island;
+    modFolders.folder = _missionFolder;
+    modFolders.folders = &folders;
+    ModSystem::EnumDirectories(AddModMPMissionFiles, &modFolders);
+    CollectMPMissionFolders(scanDir, island, folders);
+    CollectMPMissionFolders(GetUserMissionsBase() + scanDir, island, folders);
+    for (const std::string& folder : folders)
+    {
+        index = lbox->AddString(RString(folder.c_str()) + RString("..."));
+        lbox->SetData(index, folder.c_str());
+        lbox->SetValue(index, -1); // category folder
+    }
+
+    if (GameModuleRegistry::IsRegistered(GameModuleId::Editor) && _missionFolder.GetLength() == 0)
     {
         index = lbox->AddString(LocalizeString(IDS_MPW_NEW_EDIT));
-        lbox->SetValue(index, -2);
+        lbox->SetValue(index, -3);
         lbox->SetFtColor(index, PackedColor(Color(0, 1, 0, 0.25)));
         lbox->SetSelColor(index, PackedColor(Color(0, 1, 0, 0.5)));
 
         index = lbox->AddString(LocalizeString(IDS_MPW_NEW_WIZ));
-        lbox->SetValue(index, -1);
+        lbox->SetValue(index, -2);
         lbox->SetFtColor(index, PackedColor(Color(0, 1, 0, 0.25)));
         lbox->SetSelColor(index, PackedColor(Color(0, 1, 0, 0.5)));
     }
 
-    char buffer[256];
-    ::sprintf(buffer, "%s%c*.%s.pbo", GameDirs::MPMissions, PATH_SEP, (const char*)island);
+    char buffer[1024];
+    snprintf(buffer, sizeof(buffer), "%s%c*.%s.pbo", (const char*)scanDir, PATH_SEP, (const char*)island);
 
     _finddata_t info;
     intptr_t h = _findfirst(buffer, &info);
@@ -2601,9 +2948,10 @@ void DisplayServer::UpdateMissions(RString filename)
     AddModMPMissionsContext modMissions;
     modMissions.lbox = lbox;
     modMissions.island = island;
+    modMissions.folder = _missionFolder;
     ModSystem::EnumDirectories(AddModMPMissionFiles, &modMissions);
 
-    ::sprintf(buffer, "%s%c*.%s", GameDirs::MPMissions, PATH_SEP, (const char*)island);
+    snprintf(buffer, sizeof(buffer), "%s%c*.%s", (const char*)scanDir, PATH_SEP, (const char*)island);
 
     h = _findfirst(buffer, &info);
     if (h != -1)
@@ -2627,8 +2975,8 @@ void DisplayServer::UpdateMissions(RString filename)
         _findclose(h);
     }
 
-    ::sprintf(buffer, "%s%s%c*.%s", (const char*)GetUserMissionsBase(), GameDirs::MPMissions, PATH_SEP,
-              (const char*)island);
+    snprintf(buffer, sizeof(buffer), "%s%s%c*.%s", (const char*)GetUserMissionsBase(), (const char*)scanDir, PATH_SEP,
+             (const char*)island);
 
     h = _findfirst(buffer, &info);
     if (h != -1)
@@ -2723,7 +3071,8 @@ Control* DisplayRemoteMissions::OnCreateCtrl(int type, int idc, const ParamEntry
                     continue;
                 }
 
-                int index = lbox->AddString(Pars >> "CfgWorlds" >> name >> "description");
+                int index = lbox->AddString(
+                    Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage));
                 lbox->SetData(index, name);
                 if (stricmp(name, Glob.header.worldname) == 0)
                 {

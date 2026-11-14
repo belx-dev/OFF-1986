@@ -11,6 +11,7 @@ endif()
 
 set(POSEIDON_CORE_TEST_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/unit/engine/Poseidon/Support/test_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/tests/unit/engine/Poseidon/Asset/Addon/test_config_replace.cpp
     ${CMAKE_SOURCE_DIR}/tests/unit/engine/Poseidon/Asset/Formats/Common/test_format_detector.cpp
     ${CMAKE_SOURCE_DIR}/tests/unit/engine/Poseidon/UI/Locale/Stringtable/test_stringtable.cpp
     ${CMAKE_SOURCE_DIR}/tests/unit/engine/Poseidon/UI/Locale/Stringtable/test_codepage_transcode.cpp
@@ -104,6 +105,8 @@ set(FIXTURES_ROOT ${CMAKE_SOURCE_DIR}/tests/fixtures)
 add_custom_command(TARGET PoseidonCoreTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures/pbo
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures/qstream
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures/config-replace
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${FIXTURES_ROOT}/config-replace $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures/config-replace
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${FIXTURES_ROOT}/config      $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${FIXTURES_ROOT}/xml         $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${FIXTURES_ROOT}/stringtable $<TARGET_FILE_DIR:PoseidonCoreTests>/fixtures
@@ -142,9 +145,14 @@ set(POSEIDON_TEST_SOURCES
     Graphics/test_dds_converter.cpp
     Graphics/test_model_renderer.cpp
     Graphics/test_gl33_rendering.cpp
+    Graphics/test_gl33_bind_cache.cpp
+    Graphics/test_gl33_light_indices.cpp
+    Graphics/test_gl33_land_clip.cpp
+    Graphics/test_gl33_state_cache.cpp
     Graphics/test_fan_decompose.cpp
     Graphics/test_zbias_math.cpp
     Graphics/test_mipmap_layout.cpp
+    Graphics/test_texture_dummy_size.cpp
     Graphics/test_gl_state_cache_audit.cpp
     Graphics/test_ibo_bind_audit.cpp
     Graphics/test_buffer_usage_audit.cpp
@@ -208,6 +216,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     Asset/Formats/test_wrp.cpp
     Asset/Formats/RTM/test_rtm_reader.cpp
     Asset/Formats/test_rtm.cpp
+    Asset/Formats/test_p3d_model_load.cpp
     Asset/Formats/test_paa.cpp
     Asset/Formats/test_pac.cpp
     
@@ -264,6 +273,9 @@ list(APPEND POSEIDON_TEST_SOURCES
 
     # World tests (batch-08)
     World/test_terrain.cpp
+    World/test_collision_nonfinite.cpp
+    World/test_object_animated_bounds.cpp
+    World/test_landscape_object_ids.cpp
     World/test_occlusion_contour.cpp
     World/test_occlusion_sphere_edge.cpp
     World/test_landscape_layout.cpp
@@ -364,6 +376,7 @@ list(APPEND POSEIDON_TEST_SOURCES
 
     # IO tests (batch-15)
     World/test_io_types.cpp
+    IO/test_mapFile.cpp
     IO/test_paramFileExt.cpp
     IO/test_paramFile_defaults.cpp
 
@@ -393,6 +406,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     Network/test_wire_format.cpp
     Network/test_transport_io.cpp
     Network/test_encoded_matrix3.cpp
+    Network/test_rot8b.cpp
     Network/test_chat_utf8_wire.cpp
     Network/Legacy/test_network_channel.cpp
     Network/Legacy/test_network_message.cpp
@@ -424,6 +438,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     # Scene tests
     World/Scene/test_object.cpp
     World/Scene/test_scene.cpp
+    World/Scene/test_scene_draw_buckets.cpp
     World/Scene/test_scene_preloader.cpp
     World/Scene/test_surface_draw_order.cpp
     World/Scene/test_alpha_sort_order.cpp
@@ -455,6 +470,8 @@ list(APPEND POSEIDON_TEST_SOURCES
     UI/Controls/test_uiControls.cpp
     UI/Controls/test_progress_bar_widget.cpp
     UI/Controls/test_control_object_rotate_devmode.cpp
+    UI/Controls/test_html_table_row.cpp
+    UI/Controls/test_cursor_layout.cpp
     UI/test_button_modal_page.cpp
     UI/test_capture_page.cpp
     UI/test_confirm_page.cpp
@@ -468,6 +485,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     UI/test_gamepad_page.cpp
     UI/test_gamepad_tuning_page.cpp
     UI/test_graphics_page.cpp
+    UI/test_html_body_text.cpp
     UI/test_html_text_wrap.cpp
     UI/test_kbm_page.cpp
     UI/test_meter_widget.cpp
@@ -477,6 +495,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     UI/test_main_menu_layout.cpp
     UI/test_notebook_theme.cpp
     UI/test_optionsUI.cpp
+    UI/test_addon_content.cpp
     UI/test_profile_squad_audit.cpp
     UI/test_press_button_page.cpp
     UI/test_press_key_page.cpp
@@ -558,6 +577,11 @@ if(WIN32)
         version     # Version info
         comctl32    # Common controls
         legacy_stdio_definitions.lib  # Legacy CRT functions (swprintf, etc.)
+    )
+elseif(APPLE)
+    target_link_libraries(PoseidonTests PRIVATE
+        PoseidonGL33 Poseidon PoseidonOpenAL
+        pthread dl
     )
 else()
     target_link_libraries(PoseidonTests PRIVATE

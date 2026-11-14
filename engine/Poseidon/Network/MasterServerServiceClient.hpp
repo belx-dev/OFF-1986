@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Poseidon/Core/DownloadFile.hpp>
+
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -34,6 +37,7 @@ struct MasterServerServiceSession
     int timeLeft = 15;
     int stateElapsedSeconds = 0;
     std::string mod;
+    std::vector<MasterServerServiceModPackage> modPackages;
     bool equalModRequired = false;
 };
 
@@ -56,6 +60,7 @@ struct MasterServerServiceRegistration
     int timeLeft = 0;
     int stateElapsedSeconds = 0;
     std::string mod;
+    std::vector<MasterServerServiceModPackage> modPackages;
     bool equalModRequired = false;
     std::string platform;
     std::string island;
@@ -101,6 +106,9 @@ struct MasterServerServiceModCatalogEntry
     bool compatible = false;
     std::string name;
     std::string version;
+    int64_t packageRevision = 1;
+    std::string sha256;
+    int64_t publishedUnixMs = 0;
     std::string folderName;
     std::string description;
     std::vector<std::string> authors;
@@ -453,6 +461,7 @@ std::string BuildMasterServerServiceRegisterUrl(const char* masterServerHost);
 std::string BuildMasterServerServiceHeartbeatUrl(const char* masterServerHost);
 std::string BuildMasterServerServiceUnregisterUrl(const char* masterServerHost, const char* serverId);
 std::string BuildMasterServerServiceRegistrationJson(const MasterServerServiceRegistration& registration);
+bool StoreMasterServerServiceTokenFile(const std::string& path, const std::string& token);
 bool TryParseMasterServerServiceSession(const cJSON* object, MasterServerServiceSession& session);
 bool TryParseMasterServerServiceModCatalogEntry(const cJSON* object, MasterServerServiceModCatalogEntry& entry);
 bool ParseMasterServerServiceModDetailResponse(const char* json, MasterServerServiceModCatalogEntry& detail);
@@ -464,6 +473,21 @@ bool ParseMasterServerServiceModUsageResponse(const char* json,
 inline const char* GetMasterServerServicePublishAction(bool heartbeat)
 {
     return heartbeat ? "heartbeat" : "register";
+}
+
+inline std::string SanitizeMasterServerServiceError(const std::string& responseBody, size_t limit = 512)
+{
+    std::string result;
+    result.reserve(std::min(responseBody.size(), limit));
+    for (const unsigned char byte : responseBody)
+    {
+        if (result.size() == limit)
+        {
+            break;
+        }
+        result.push_back(byte < 0x20 || byte == 0x7f ? ' ' : static_cast<char>(byte));
+    }
+    return result;
 }
 
 inline bool BuildMasterServerServicePublishRequest(const char* masterServerHost,
@@ -681,20 +705,20 @@ bool FetchMasterServerServiceModServers(const char* masterServerHost, const char
                                         std::vector<MasterServerServiceModUsageServer>& servers);
 
 // Streams an HTTP GET body straight to destPath (written to "<destPath>.part"
-// then atomically renamed on a 2xx response). progress, when non-null, is
-// called with (instance, bytesReceived, contentLength) — contentLength is 0
-// when the server sends no Content-Length. Returns true only on a fully
-// received 2xx download. HTTPS is unsupported on non-Windows (mirrors the JSON
-// transport).
+// then atomically renamed on a complete 2xx response). progress, when non-null, is
+// called with (instance, bytesReceived, contentLength) - contentLength is 0
+// when the server sends no Content-Length. A validator-backed partial file is
+// resumed on the next call.
 using MasterServerServiceDownloadProgressCallback = void (*)(void* instance, int64_t received, int64_t total);
 
 // Polled during the transfer; return true to abort the download promptly (so a
 // cancelled download stops instead of running to completion). nullptr = never abort.
 using MasterServerServiceDownloadCancelCheck = bool (*)(void* instance);
 
-bool DownloadMasterServerServiceFile(const char* url, const char* proxyServer, const char* destPath, void* instance,
-                                     MasterServerServiceDownloadProgressCallback progress,
-                                     MasterServerServiceDownloadCancelCheck cancelCheck = nullptr);
+DownloadFileResult DownloadMasterServerServiceFile(const char* url, const char* proxyServer, const char* destPath,
+                                                   void* instance, MasterServerServiceDownloadProgressCallback progress,
+                                                   MasterServerServiceDownloadCancelCheck cancelCheck = nullptr,
+                                                   std::string* error = nullptr);
 
 template <class FetchFn>
 bool RefreshMasterServerServiceBrowserFromDirectory(const char* masterServerHost,

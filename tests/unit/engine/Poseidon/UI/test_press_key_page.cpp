@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace Poseidon;
 namespace Poseidon
@@ -48,7 +49,7 @@ class HeldKey
 class TestPressKeyPage : public PressKeyPage
 {
   public:
-    explicit TestPressKeyPage(CaptureResult& result)
+    explicit TestPressKeyPage(CaptureResult& result, bool allowMouseWheel = false)
         : PressKeyPage(
               "Test Action", "Primary",
               [&result](int packedCode, int modifier, bool replaceConflict)
@@ -58,7 +59,7 @@ class TestPressKeyPage : public PressKeyPage
                   result.replaceConflict = replaceConflict;
                   ++result.saveCalls;
               },
-              [](int, int) { return UAN; })
+              [](int, int) { return std::vector<UserAction>{}; }, allowMouseWheel)
     {
     }
 
@@ -67,7 +68,7 @@ class TestPressKeyPage : public PressKeyPage
 };
 } // namespace
 
-TEST_CASE("PressKeyPage refuses modifier-only keys and stays listening", "[UI][PressKeyPage]")
+TEST_CASE("PressKeyPage captures a lone modifier key", "[UI][PressKeyPage]")
 {
     TestableOptionsShell shell;
     CaptureResult result;
@@ -76,9 +77,16 @@ TEST_CASE("PressKeyPage refuses modifier-only keys and stays listening", "[UI][P
 
     shell.PushPage(std::move(page));
 
+    // A modifier pressed on its own is a bindable key (Left Shift / Ctrl / Alt),
+    // captured with no modifier of its own, not refused.
     CHECK(raw->OnKeyDown(shell, SDLK_LSHIFT));
-    CHECK(raw->Listening());
-    CHECK(result.saveCalls == 0);
+    REQUIRE_FALSE(raw->Listening());
+
+    raw->OnButtonClicked(shell, 9301);
+
+    CHECK(result.saveCalls == 1);
+    CHECK(result.savedCode == (int)SDL_SCANCODE_LSHIFT);
+    CHECK(result.savedModifier == -1);
 }
 
 TEST_CASE("PressKeyPage captures a plain key without a modifier", "[UI][PressKeyPage]")
@@ -140,6 +148,27 @@ TEST_CASE("PressKeyPage simulate captures a pending mouse button", "[UI][PressKe
 
     CHECK(result.saveCalls == 1);
     CHECK(result.savedCode == INPUT_DEVICE_MOUSE + 2);
+    CHECK(result.savedModifier == -1);
+}
+
+TEST_CASE("PressKeyPage captures mouse wheel direction when enabled", "[UI][PressKeyPage]")
+{
+    TestableOptionsShell shell;
+    CaptureResult result;
+    auto page = std::make_unique<TestPressKeyPage>(result, true);
+    TestPressKeyPage* raw = page.get();
+
+    shell.PushPage(std::move(page));
+
+    GInput.mouse.deltaZ = -1.0f;
+    raw->Simulate(shell);
+    GInput.mouse.deltaZ = 0.0f;
+
+    REQUIRE_FALSE(raw->Listening());
+    raw->OnButtonClicked(shell, 9301);
+
+    CHECK(result.saveCalls == 1);
+    CHECK(result.savedCode == INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_DOWN);
     CHECK(result.savedModifier == -1);
 }
 

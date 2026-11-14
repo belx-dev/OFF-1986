@@ -55,6 +55,31 @@ else()
     add_compile_options(-ffunction-sections -fdata-sections)
 endif()
 
+if(UNIX AND NOT APPLE)
+    # A canary on every frame that holds an array or an address-taken local.
+    # clang-cl enables the same check by default through /GS, so the Windows
+    # build already has it.
+    add_compile_options(-fstack-protector-strong)
+
+    # glibc bounds-checks the memory, string and stdio calls whose destination size
+    # it can see, at compile time where the overflow is provable and through the
+    # __*_chk entry points otherwise. Level 2 also rejects open() with O_CREAT and
+    # no mode.
+    #
+    # The fortified wrappers sit behind __OPTIMIZE__, so glibc warns and turns
+    # itself off in an unoptimized build; Debug is left out. Sanitizer builds are
+    # left out because ASan interposes the same entry points.
+    if(NOT "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_DEBUG}" MATCHES "-fsanitize")
+        set(CWR_FORTIFY_SOURCE "2" CACHE STRING "_FORTIFY_SOURCE level for optimized builds; 0 disables")
+        if(NOT CWR_FORTIFY_SOURCE STREQUAL "0")
+            add_compile_options(
+                $<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE>
+                $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=${CWR_FORTIFY_SOURCE}>
+            )
+        endif()
+    endif()
+endif()
+
 # Make __FILE__ repo-root-relative so log/assert lines (Fail(), DoAssert(), LOG_*)
 # read "engine/Poseidon/...:NN" instead of an absolute build-machine path. Affects only
 # the __FILE__ macro string, not debug info.
@@ -139,6 +164,10 @@ add_compile_options(
     -Wno-format                           # Format string mismatches (MSVC vs clang differences)
 )
 
+# Whatever the suppressions above do not cover is a defect, on every preset and platform.
+# Bypass a local build with --compile-no-warning-as-error.
+set(CMAKE_COMPILE_WARNING_AS_ERROR ON CACHE BOOL "Treat compiler warnings as errors")
+
 enable_testing()
 
 # Backend availability — driven by platform, overridable
@@ -166,7 +195,7 @@ find_package(enkiTS CONFIG REQUIRED)
 # dist/<preset>/{game,viewer,tools} - auto-create on build
 get_filename_component(PRESET_NAME "${CMAKE_BINARY_DIR}" NAME)
 set(DIST_PRESET_NAME "${PRESET_NAME}")
-if(DIST_PRESET_NAME MATCHES "^(win|linux)-([^-]+)(-(.*))?$")
+if(DIST_PRESET_NAME MATCHES "^(win|macos|linux)-([^-]+)(-(.*))?$")
     set(_dist_platform "${CMAKE_MATCH_1}")
     set(_dist_arch "${CMAKE_MATCH_2}")
     set(_dist_suffix "${CMAKE_MATCH_4}")
@@ -213,8 +242,7 @@ add_subdirectory(apps/tools/Tools)
 add_subdirectory(apps/tools/TcPbo)
 add_subdirectory(apps/tools/TcLister)
 add_subdirectory(apps/tools/Studio)
-# tests/unit/apps/Studio's ImGui-Test-Engine UI suite is quarantined under
-# License-restricted UI test sources are not part of this public tree.
+add_subdirectory(tests/unit/apps/Studio)
 add_subdirectory(apps/tetris/Tetris)
 add_subdirectory(tests/unit/apps/Tetris)
 

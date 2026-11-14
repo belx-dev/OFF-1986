@@ -3,6 +3,10 @@
 #include <Poseidon/UI/DisplayUI.hpp>
 #include <Poseidon/Network/Network.hpp>
 #include <Poseidon/Game/Chat.hpp>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
 
 // Shared utility functions
 
@@ -21,15 +25,21 @@ RString GetSaveDirectoryCampaign(RString campaign);
 RString GetSaveDirectoryMission(RString world, RString mission);
 RString GetTmpSaveDirectory();
 RString CreateSingleMissionBank(RString filename);
+RString ResolveSPMissionSubdir(RString subDir, RString mission);
+void EnsureContinueSave(RString dir);
 void CreatePath(RString path);
+void SetBaseDirectory(bool userMission, RString dir);
 void SetBaseDirectory(RString dir);
 void SetBaseSubdirectory(RString dir);
 void SetCampaign(RString name);
 void SetMission(RString world, RString mission, RString subdir);
 void SetMission(RString world, RString mission);
+// Missions subdir of the active mod dir (or base game) that hosts an unpacked arcade single mission.
+RString ResolveArcadeMissionSubdir(RString world, RString mission);
 void ApplyCurrentMissionViewDistance();
 RString GetBaseDirectory();
 RString GetBaseSubdirectory();
+bool IsUserMission();
 LSError SaveMission(const char* filename);
 LSError LoadMission(const char* filename);
 void CampaignSaveWeaponPool(WeaponsInfo& pool);
@@ -40,6 +50,7 @@ void AddDeadIdentity(RString identity);
 void SetMissionDisplayName(RString campaign, RString battle, RString mission, RString displayName);
 void AddMission(RString campaign, RString battle, RString mission, RString displayName);
 void StartRandomCutscene(RString world);
+RString ResolveCutsceneAnimsSubdir(RString world, RString name);
 RString GetCampaignMissionDirectory(RString campaign, RString mission);
 
 struct CountedString : SerializeClass
@@ -110,12 +121,29 @@ struct ContinueInfo
 
 class DisplaySingleMission : public Display
 {
+  public:
+    // Why a listed mission cannot be played, empty when it can. The preview pane takes a
+    // shortened list of missing addons, the message box and the log take all of them.
+    struct MissionBlock
+    {
+        RString brief;
+        RString full;
+    };
+
   protected:
     int _exitWhenClose;
 
     int _langCbToken = -1;
 
     RString _directory;
+
+    // Keyed as in ScanMissionDirectory, kept until another folder is listed because the answer
+    // costs a mission.sqm parse.
+    std::map<std::string, MissionBlock> _blockedMissions;
+
+    // The pane's configured text colour: SetTextColor sticks, so every selection restores it
+    // and only a blocked mission is drawn in red.
+    std::optional<PackedColor> _overviewTextColor;
 
   public:
     bool _cadetMode;
@@ -136,6 +164,9 @@ class DisplaySingleMission : public Display
     void LoadParams();
     void SaveParams();
     void LoadDirectory();
+    void ScanMissionDirectory(const RString& dir, C3DListBox* lbox, std::set<std::string>& seen);
+    RString MissionDirectory(RString mission, int missionType) const;
+    MissionBlock BlockedMissionReason(RString mission, int missionType);
     void RefreshLanguage();
 };
 

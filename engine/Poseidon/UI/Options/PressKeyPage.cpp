@@ -31,6 +31,24 @@ bool IsModifierOnly(unsigned key)
     }
 }
 
+bool IsModifierScancode(int sc)
+{
+    switch (sc)
+    {
+        case SDL_SCANCODE_LCTRL:
+        case SDL_SCANCODE_RCTRL:
+        case SDL_SCANCODE_LSHIFT:
+        case SDL_SCANCODE_RSHIFT:
+        case SDL_SCANCODE_LALT:
+        case SDL_SCANCODE_RALT:
+        case SDL_SCANCODE_LGUI:
+        case SDL_SCANCODE_RGUI:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // SDL keycode → SDL scancode.  v1 storage is the raw SDL scancode in
 // the low bits — same encoding the table uses.
 SDL_Scancode KeyToScancode(unsigned key)
@@ -73,17 +91,21 @@ int CapturedMouseButtonInput()
 }
 } // namespace
 
+bool PressKeyPage::IsBareModifierCode(int packedCode) const
+{
+    return IsModifierScancode(packedCode);
+}
+
 CapturePage::Result PressKeyPage::InterpretKey(unsigned nChar, int& outPackedCode, int& outModifier) const
 {
-    if (IsModifierOnly(nChar))
-        return Result::Refused;
-
     SDL_Scancode sc = KeyToScancode(nChar);
     if (sc == SDL_SCANCODE_UNKNOWN)
         return Result::Refused;
 
     outPackedCode = (int)sc;
-    outModifier = CapturedModifierScancode();
+    // A lone modifier captures standalone; a real key pressed while it is held
+    // upgrades to a "Mod+Key" combo. Other keys pick up the modifier held now.
+    outModifier = IsModifierOnly(nChar) ? -1 : CapturedModifierScancode();
     return Result::Main;
 }
 
@@ -91,13 +113,27 @@ bool PressKeyPage::OnKeyDown(OptionsShell& shell, unsigned nChar)
 {
     int packed = -1;
     int modifier = -1;
-    if (InterpretKey(nChar, packed, modifier) == Result::Main && TryUpgradeToDoubleTap(shell, packed, modifier))
+    if (InterpretKey(nChar, packed, modifier) == Result::Main &&
+        (TryUpgradeToCombo(shell, packed, modifier) || TryUpgradeToDoubleTap(shell, packed, modifier)))
         return true;
     return CapturePage::OnKeyDown(shell, nChar);
 }
 
 void PressKeyPage::OnSimulate(OptionsShell& shell)
 {
+    CapturePage::OnSimulate(shell);
+    auto& input = InputSubsystem::Instance();
+    const float wheel = input.GetMouseWheel();
+    if (m_allowMouseWheel && IsListening() && wheel != 0.0f)
+    {
+        input.ConsumeCursorScroll();
+        TryCapture(shell,
+                   wheel > 0.0f ? INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_UP
+                                : INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_DOWN,
+                   -1);
+        return;
+    }
+
     const int mouse = CapturedMouseButtonInput();
     if (mouse < 0)
         return;

@@ -2,6 +2,7 @@
 
 #include <Poseidon/Asset/Probes/AssetInfo.hpp>
 #include <Poseidon/Foundation/Strings/RString.hpp>
+#include <Poseidon/IO/Filesystem/Utf8Paths.hpp>
 #include <Poseidon/IO/Streams/QBStream.hpp>
 #include <Poseidon/IO/Streams/QStream.hpp>
 
@@ -126,6 +127,24 @@ std::string NormalizeEntryName(const std::string& name)
 }
 } // namespace
 
+bool ModArchive::IsSafeEntryPath(const std::string& entryName)
+{
+    namespace fs = std::filesystem;
+    const std::string normalized = NormalizeEntryName(entryName);
+    if (normalized.empty() || normalized[0] == '/' ||
+        (normalized.size() >= 2 && std::isalpha(static_cast<unsigned char>(normalized[0])) && normalized[1] == ':'))
+        return false;
+    const fs::path path(normalized);
+    if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
+        return false;
+    for (const fs::path& component : path)
+    {
+        if (component == "..")
+            return false;
+    }
+    return true;
+}
+
 bool ModArchive::Unpack(const char* archivePath, const char* destDir, std::string* error)
 {
     const auto fail = [&](const std::string& message)
@@ -185,6 +204,15 @@ bool ModArchive::Unpack(const char* archivePath, const char* destDir, std::strin
     }
 
     const fs::path root(destDir);
+    for (const auto& entry : info.entries)
+    {
+        if (!IsSafeEntryPath(entry.name))
+        {
+            bank.Unlock();
+            cleanup();
+            return fail(std::string("unsafe archive entry: ") + entry.name);
+        }
+    }
     fs::create_directories(root, ec);
 
     bool ok = true;
@@ -197,13 +225,14 @@ bool ModArchive::Unpack(const char* archivePath, const char* destDir, std::strin
             break;
         }
 
-        const fs::path outPath = root / fs::path(NormalizeEntryName(entry.name));
+        // Entry names are UTF-8, and fs::path reads narrow bytes in the platform's own encoding.
+        const fs::path outPath = root / FilesystemPathFromUtf8(NormalizeEntryName(entry.name));
         fs::create_directories(outPath.parent_path(), ec);
 
-        FILE* out = std::fopen(outPath.string().c_str(), "wb");
+        FILE* out = OpenFileUtf8(FilesystemPathToUtf8(outPath).c_str(), "wb");
         if (out == nullptr)
         {
-            ok = fail(std::string("cannot write: ") + outPath.string());
+            ok = fail(std::string("cannot write: ") + FilesystemPathToUtf8(outPath));
             break;
         }
 
@@ -214,7 +243,7 @@ bool ModArchive::Unpack(const char* archivePath, const char* destDir, std::strin
             if (written != static_cast<size_t>(size))
             {
                 std::fclose(out);
-                ok = fail(std::string("short write: ") + outPath.string());
+                ok = fail(std::string("short write: ") + FilesystemPathToUtf8(outPath));
                 break;
             }
         }

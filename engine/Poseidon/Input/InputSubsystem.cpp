@@ -492,6 +492,8 @@ void InputSubsystem::ComputeMovementState()
     GInput.keyboard.cheat2 = cheat2;
 #endif
 
+    GInput.keyboard.cheatEntryTrigger = GetAction(UACheatEntry, false) > 0.0f;
+
     moveLeft_ = 0;
     moveRight_ = 0;
     moveUp_ = 0;
@@ -606,10 +608,29 @@ float InputSubsystem::GetAction(InputContext ctx, UserAction action, bool checkF
 
 bool InputSubsystem::GetActionToDo(UserAction action, bool reset, bool checkFocus)
 {
-    const int idx = static_cast<int>(context_);
+    return GetActionToDo(context_, action, reset, checkFocus);
+}
+
+bool InputSubsystem::GetActionToDo(InputContext ctx, UserAction action, bool reset, bool checkFocus)
+{
+    const int idx = static_cast<int>(ctx);
     if (idx < 0 || idx >= kNumContexts)
         return false;
     return QueryProfileActionToDo(GInput, profiles_[idx], action, actionDoneByContext_[idx][action], reset, checkFocus);
+}
+
+float InputSubsystem::GetMoveForward(InputContext ctx) const
+{
+    // Turbo held promotes MoveForward into fast-forward, so bare forward is zero.
+    return GetAction(ctx, UATurbo) > 0 ? 0.0f : GetAction(ctx, UAMoveForward);
+}
+
+float InputSubsystem::GetMoveFastForward(InputContext ctx) const
+{
+    float fast = GetAction(ctx, UAMoveFastForward);
+    if (GetAction(ctx, UATurbo) > 0)
+        fast += GetAction(ctx, UAMoveForward);
+    return fast;
 }
 
 bool InputSubsystem::IsKeyDown(SDL_Scancode sc) const
@@ -763,6 +784,17 @@ InputProfile& InputSubsystem::GetProfile(InputContext ctx)
 const InputProfile& InputSubsystem::GetProfile(InputContext ctx) const
 {
     return profiles_[static_cast<int>(ctx)];
+}
+
+bool InputSubsystem::IsBindingActive(UserAction action, InputCode code, bool checkFocus) const
+{
+    const InputProfile& profile = GetProfile(context_);
+    for (const InputBinding& binding : profile.GetBindingEntries(action))
+    {
+        if (binding.code == code && ProfileModifierHeld(GInput, binding.modifier, checkFocus))
+            return true;
+    }
+    return false;
 }
 
 void InputSubsystem::ResetLookAroundToggle()
@@ -1030,6 +1062,10 @@ void InputSubsystem::LoadKeys()
         contextControls.LoadDefaults();
         contextControls.Save(contextControlsPath);
     }
+    else if (contextControls.migratedOnLoad)
+    {
+        contextControls.Save(contextControlsPath);
+    }
     profiles_ = contextControls.profiles;
 
     // GInput.userKeys is no longer a persistence source. Keep it empty so
@@ -1158,7 +1194,11 @@ void InputSubsystem::ResetCategoryDefaults(ControlsCategory cat)
         for (int j = 0; j < defaultKeys.Size(); j++)
         {
             if (!GamepadConfig::IsGamepadCode(defaultKeys[j]))
-                defaultBindings.push_back(InputBinding(InputCode::FromLegacy(defaultKeys[j])));
+            {
+                int mod = DefaultModifierForDefaultKey(static_cast<UserAction>(idx), defaultKeys[j]);
+                InputCode modCode = mod >= 0 ? InputCode::FromLegacy(mod) : InputCode{};
+                defaultBindings.push_back(InputBinding(InputCode::FromLegacy(defaultKeys[j]), modCode));
+            }
         }
 
         for (int c = 0; c < contexts.count; ++c)
@@ -1243,6 +1283,15 @@ UserActionDesc* InputSubsystem::GetUserActionDesc()
         UserActionDesc("AimDown", IDS_USRACT_AIM_DOWN, -1),
         UserActionDesc("AimLeft", IDS_USRACT_AIM_LEFT, -1),
         UserActionDesc("AimRight", IDS_USRACT_AIM_RIGHT, -1),
+        UserActionDesc("MapZoomIn", IDS_USRACT_MAP_ZOOM_IN, SDL_SCANCODE_KP_PLUS,
+                       INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_DOWN, -1),
+        UserActionDesc("MapZoomOut", IDS_USRACT_MAP_ZOOM_OUT, SDL_SCANCODE_KP_MINUS,
+                       INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_UP, -1),
+        UserActionDesc("CheatEntry", IDS_USRACT_CHEAT_ENTRY, SDL_SCANCODE_KP_MINUS, -1),
+        UserActionDesc("ChatPrevChannel", IDS_USRACT_CHAT_PREV_CHANNEL, SDL_SCANCODE_DOWN, -1),
+        UserActionDesc("ChatNextChannel", IDS_USRACT_CHAT_NEXT_CHANNEL, SDL_SCANCODE_UP, -1),
+        UserActionDesc("ChatHistoryUp", IDS_USRACT_CHAT_HISTORY_UP, SDL_SCANCODE_PAGEUP, -1),
+        UserActionDesc("ChatHistoryDown", IDS_USRACT_CHAT_HISTORY_DOWN, SDL_SCANCODE_PAGEDOWN, -1),
 #if _ENABLE_CHEATS
         UserActionDesc("Cheat1", IDS_USRACT_CHEAT_1, SDL_SCANCODE_RGUI, -1),
         UserActionDesc("Cheat2", IDS_USRACT_CHEAT_2, SDL_SCANCODE_RALT, -1),
@@ -1254,6 +1303,25 @@ UserActionDesc* InputSubsystem::GetUserActionDesc()
     static_assert(std::size(userActionDesc) == UAN,
                   "UserActionDesc table must have exactly one entry per UserAction (UAN)");
     return userActionDesc;
+}
+
+const char* InputSubsystem::GetUserActionLabel(UserAction action)
+{
+    if (action < 0 || action >= UAN)
+        return "";
+    switch (action)
+    {
+        case UAChatPrevChannel:
+            return LocalizeStringWithFallback("STR_USRACT_CHAT_PREV_CHANNEL", "Previous chat channel");
+        case UAChatNextChannel:
+            return LocalizeStringWithFallback("STR_USRACT_CHAT_NEXT_CHANNEL", "Next chat channel");
+        case UAChatHistoryUp:
+            return LocalizeStringWithFallback("STR_USRACT_CHAT_HISTORY_UP", "Chat history up");
+        case UAChatHistoryDown:
+            return LocalizeStringWithFallback("STR_USRACT_CHAT_HISTORY_DOWN", "Chat history down");
+        default:
+            return LocalizeString(GetUserActionDesc()[action].desc);
+    }
 }
 
 bool InputSubsystem::IsReverseMouse() const

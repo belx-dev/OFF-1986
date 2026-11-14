@@ -257,7 +257,7 @@ enum MotionEdgeType
 struct MotionEdge
 {
 	short target;
-	char cost; // <0 means infinity
+	short cost;
 	SizedEnum<MotionEdgeType,char> type;
 
 	MotionEdge(){target=-1,cost=-1,type=MEdgeNone;}
@@ -311,7 +311,6 @@ class MotionType
 
 	ActionMap *GetNoActions() const {return _noActions;}
 
-	int EdgeCost( MoveId a, MoveId b ) const;
 	const MotionEdge &Edge( MoveId a, MoveId b ) const;
 	void AddEdge(MoveId a, MoveId b, MotionEdgeType type, float cost);
 	void DeleteEdge(MoveId a, MoveId b);
@@ -632,7 +631,9 @@ class Man: public Person
 	float GetCombatHeight() const override {return 0;}
 	int GetFaceAnimation() const {return _head.GetFaceAnimation();}
 	void SetFaceAnimation(int phase) {_head.SetFaceAnimation(phase);}
+	RString GetFaceTextureName() const {return _head.GetFaceTextureName();}
 	void SetFace(RString name, RString player = "") override;
+	void SetFace(RString name, const PlayerIdentityKey &player) override;
 	void SetGlasses(RString name) override;
 	void SetMimic(RStringB name) {_head.SetForceMimic(name);}
 

@@ -11,8 +11,10 @@
 #include <Poseidon/World/Scene/Camera/Camera.hpp>
 #include <Poseidon/Core/Progress.hpp>
 #include <Poseidon/IO/Serialization/ParamArchive.hpp>
+#include <Poseidon/IO/Filesystem/Utf8Paths.hpp>
 #include <Poseidon/Core/SaveVersion.hpp>
 #include <Poseidon/IO/Streams/QBStream.hpp>
+#include <Poseidon/Core/ModSystem.hpp>
 #include <Random/randomGen.hpp>
 #include <Poseidon/UI/Locale/Stringtable/CodepageTranscode.hpp>
 #include <Poseidon/Game/Scripting/Scripts.hpp>
@@ -22,8 +24,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <cctype>
 #include <memory>
 #include <optional>
+#include <set>
+#include <vector>
 #include <Poseidon/Foundation/Common/FltOpts.hpp>
 #include <Poseidon/Foundation/Containers/Array.hpp>
 #include <Poseidon/Foundation/Framework/AppFrame.hpp>
@@ -145,6 +150,129 @@ void DisplaySingleMission::OnLBDblClick(int idc, int curSel)
     }
 }
 
+namespace
+{
+std::string MissionKey(const char* name)
+{
+    std::string key(name ? name : "");
+    for (char& c : key)
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return key;
+}
+
+} // namespace
+
+// A packed mission is placed by the last dot in its name (CreateSingleMissionBank), an unpacked
+// one by the first (ProcessTemplateName).
+static RString SPMissionWorld(RString missionName, bool packed)
+{
+    const char* dot = packed ? strrchr(missionName, '.') : strchr(missionName, '.');
+    if (!dot)
+    {
+        return RString();
+    }
+    std::string world(dot + 1);
+    if (!packed)
+    {
+        const size_t next = world.find('.');
+        if (next != std::string::npos)
+        {
+            world.resize(next);
+        }
+    }
+    return RString(world.c_str());
+}
+
+const int kPreviewAddonLimit = 8;
+
+// Empty when the mission can be played, otherwise what stops it, ready to show.
+static DisplaySingleMission::MissionBlock MissionBlockedReason(RString missionName, bool packed, RString missionPrefix)
+{
+    RString world = SPMissionWorld(missionName, packed);
+    if (!WorldInstalled(world))
+    {
+        char message[256];
+        snprintf(message, sizeof(message), LocalizeString(IDS_MSG_NO_WORLD), (const char*)world);
+        return {RString(message), RString(message)};
+    }
+
+    ParamFile file;
+    if (missionPrefix.GetLength() == 0 || !file.ParseBinOrTxt(missionPrefix + RString("mission.sqm")))
+    {
+        return {};
+    }
+    const ParamEntry* mission = file.FindEntry("Mission");
+    if (!mission)
+    {
+        return {};
+    }
+    FindArrayRStringCI addOns;
+    FindArrayRStringCI missing;
+    ReadMissionAddons(*mission, addOns);
+    FindMissingAddons(addOns, missing);
+    if (missing.Size() == 0)
+    {
+        return {};
+    }
+    return {MissingAddonMessage(missing, kPreviewAddonLimit), MissingAddonMessage(missing)};
+}
+
+// Every active mod's Missions/ (mods first, so a mod mission wins dedup) then the game root,
+// matching the load side where CreateSingleMissionBank prefers a mod PBO.
+std::vector<RString> GetSPMissionLookupDirs(const RString& subDir)
+{
+    std::vector<RString> dirs;
+    struct Ctx
+    {
+        std::vector<RString>* dirs;
+        const RString* sub;
+    } ctx{&dirs, &subDir};
+    ModSystem::EnumDirectories(
+        [](RStringB dir, void* context) -> bool
+        {
+            if (dir.GetLength() == 0)
+                return false;
+            auto* active = static_cast<Ctx*>(context);
+            active->dirs->push_back(RString((const char*)dir) + RString("\\Missions\\") + *active->sub);
+            return false;
+        },
+        &ctx);
+    dirs.push_back(RString("Missions\\") + subDir);
+    return dirs;
+}
+
+RString ResolveSPMissionSubdir(RString subDir, RString mission)
+{
+    struct Ctx
+    {
+        RString subDir;
+        RString mission;
+        RString result;
+    } ctx{subDir, mission, RString("Missions\\") + subDir};
+
+    ModSystem::EnumDirectories(
+        [](RStringB dir, void* context) -> bool
+        {
+            if (dir.GetLength() == 0)
+                return false;
+
+            auto* active = static_cast<Ctx*>(context);
+            const RString missionDir = RString((const char*)dir) + RString("\\Missions\\") + active->subDir;
+            const RString probe = missionDir + active->mission;
+            _finddata_t info;
+            const intptr_t h = _findfirst(probe, &info);
+            if (h == -1)
+                return false;
+
+            _findclose(h);
+            active->result = missionDir;
+            return true;
+        },
+        &ctx);
+
+    return ctx.result;
+}
+
 void DisplaySingleMission::LoadDirectory()
 {
     ProgressStart(LocalizeString(IDS_LOAD_WORLD));
@@ -155,6 +283,7 @@ void DisplaySingleMission::LoadDirectory()
     }
 
     lbox->ClearStrings();
+    _blockedMissions.clear();
 
     if (_directory.GetLength() > 0)
     {
@@ -163,8 +292,18 @@ void DisplaySingleMission::LoadDirectory()
         lbox->SetValue(index, -2); // subdirectory
     }
 
-    RString dir = RString("Missions\\") + _directory;
+    std::set<std::string> seen;
+    for (const RString& dir : GetSPMissionLookupDirs(_directory))
+    {
+        ScanMissionDirectory(dir, lbox, seen);
+    }
+    lbox->SortItemsByValue();
+    lbox->SetCurSel(0);
+    ProgressFinish();
+}
 
+void DisplaySingleMission::ScanMissionDirectory(const RString& dir, C3DListBox* lbox, std::set<std::string>& seen)
+{
     const char* searchStr = "briefingName";
     int searchLen = strlen(searchStr);
 
@@ -179,10 +318,16 @@ void DisplaySingleMission::LoadDirectory()
             if ((info.attrib & _A_SUBDIR) == 0)
             {
                 // remove extension (.pbo)
-                RString name = info.name;
-                int n = name.GetLength() - 4;
-                PoseidonAssert(stricmp(name + n, ".pbo") == 0);
-                RString nameNoExt = name.Substring(0, n);
+                RString fileName = info.name;
+                int n = fileName.GetLength() - 4;
+                PoseidonAssert(stricmp(fileName + n, ".pbo") == 0);
+                RString nameNoExt = fileName.Substring(0, n);
+                RString name = nameNoExt;
+
+                if (!seen.insert(MissionKey(nameNoExt)).second)
+                {
+                    continue;
+                }
 
                 // create bank (temporary)
                 QFBank bank;
@@ -254,7 +399,22 @@ void DisplaySingleMission::LoadDirectory()
                     }
                 }
 
-                int index = lbox->AddString(Localize(name));
+                // No mission is open at scan time, so the global tables know nothing about a
+                // key that ships inside the PBO.
+                RString displayName;
+                if (name[0] == '$' || name[0] == '@')
+                {
+                    displayName = LookupStringtableCsvInBank(bank, (const char*)name + 1);
+                }
+                if (displayName.GetLength() == 0)
+                {
+                    displayName = Localize(name);
+                }
+                if (displayName.GetLength() == 0)
+                {
+                    displayName = nameNoExt;
+                }
+                int index = lbox->AddString(DecodeLegacyTextToRString(displayName, GLanguage));
                 lbox->SetData(index, nameNoExt);
                 lbox->SetValue(index, 1); // bank
             }
@@ -272,6 +432,11 @@ void DisplaySingleMission::LoadDirectory()
             if ((info.attrib & _A_SUBDIR) != 0 && info.name[0] != '.')
             {
                 RString name = info.name;
+
+                if (!seen.insert(MissionKey(name)).second)
+                {
+                    continue;
+                }
 
                 if (strchr(name, '.'))
                 {
@@ -371,14 +536,14 @@ void DisplaySingleMission::LoadDirectory()
                         // syntax to the player.
                         displayName = info.name;
                     }
-                    int index = lbox->AddString(displayName);
+                    int index = lbox->AddString(DecodeLegacyTextToRString(displayName, GLanguage));
                     lbox->SetData(index, info.name);
                     lbox->SetValue(index, 0); // directory
                 }
                 else
                 {
                     // Subdirectory
-                    int index = lbox->AddString(name + RString("..."));
+                    int index = lbox->AddString(DecodeLegacyTextToRString(name, GLanguage) + RString("..."));
                     lbox->SetData(index, name);
                     lbox->SetValue(index, -1); // subdirectory
                 }
@@ -386,9 +551,6 @@ void DisplaySingleMission::LoadDirectory()
         } while (0 == _findnext(h, &info));
         _findclose(h);
     }
-    lbox->SortItemsByValue();
-    lbox->SetCurSel(0);
-    ProgressFinish();
 }
 
 RString GetOverviewFile(RString dir)
@@ -403,11 +565,12 @@ void LoadMissionPreviewHtml(C3DHTML* html, RString filename, const MissionLangua
     html->LoadBuffer(filename, combined, false);
 }
 
-static void CheckContinueSave(RString dir)
+void EnsureContinueSave(RString dir)
 {
     RString resume = dir + RString("continue.fps");
     if (QIFStream::FileExists(resume))
     {
+        RepairMissingFilePermissionsUtf8(resume);
         return;
     }
 
@@ -422,25 +585,48 @@ static void CheckContinueSave(RString dir)
             time_t timeAutosave = getFileModTime(autosave);
             if (timeSave >= timeAutosave)
             {
-                ::CopyFile(save, resume, FALSE);
+                CopyFileUtf8(save, resume, false);
             }
             else
             {
-                ::CopyFile(autosave, resume, FALSE);
+                CopyFileUtf8(autosave, resume, false);
             }
         }
         else
         {
-            ::CopyFile(save, resume, FALSE);
+            CopyFileUtf8(save, resume, false);
         }
     }
     else
     {
         if (QIFStream::FileExists(autosave))
         {
-            ::CopyFile(autosave, resume, FALSE);
+            CopyFileUtf8(autosave, resume, false);
         }
     }
+}
+
+RString DisplaySingleMission::MissionDirectory(RString mission, int missionType) const
+{
+    const RString subDir =
+        missionType == 1 ? RString("Missions\\") + _directory : ResolveSPMissionSubdir(_directory, mission);
+    return subDir + mission;
+}
+
+DisplaySingleMission::MissionBlock DisplaySingleMission::BlockedMissionReason(RString mission, int missionType)
+{
+    const std::string key = MissionKey(mission);
+    const auto it = _blockedMissions.find(key);
+    if (it != _blockedMissions.end())
+    {
+        return it->second;
+    }
+
+    const RString directory = MissionDirectory(mission, missionType);
+    const RString prefix = missionType == 1 ? CreateSingleMissionBank(directory) : directory + RString("\\");
+    const MissionBlock reason = MissionBlockedReason(mission, missionType == 1, prefix);
+    _blockedMissions[key] = reason;
+    return reason;
 }
 
 void DisplaySingleMission::OnChangeMission()
@@ -451,6 +637,11 @@ void DisplaySingleMission::OnChangeMission()
         return;
     }
     html->Init();
+    if (!_overviewTextColor.has_value())
+    {
+        _overviewTextColor = html->GetTextColor();
+    }
+    html->SetTextColor(*_overviewTextColor);
     C3DListBox* lbox = dynamic_cast<C3DListBox*>(GetCtrl(IDC_SINGLE_MISSION));
     if (!lbox)
     {
@@ -463,11 +654,12 @@ void DisplaySingleMission::OnChangeMission()
     }
 
     RString mission = lbox->GetData(sel);
-    RString directory = RString("missions\\") + _directory + mission;
+    const int missionType = lbox->GetValue(sel);
+    RString directory = MissionDirectory(mission, missionType);
 
-    if (lbox->GetValue(sel) < 0)
+    if (missionType < 0)
     {
-        if (lbox->GetValue(sel) == -1)
+        if (missionType == -1)
         {
             RString filename = GetOverviewFile(directory + RString("\\"));
             if (filename.GetLength() > 0)
@@ -489,33 +681,45 @@ void DisplaySingleMission::OnChangeMission()
         return;
     }
 
-    RString filename;
-    MissionLanguageDetector::MissionPreviewInfo preview;
-    if (lbox->GetValue(sel) == 1)
+    const MissionBlock blocked = BlockedMissionReason(mission, missionType);
+    if (blocked.brief.GetLength() > 0)
     {
-        RString bank = CreateSingleMissionBank(directory);
-        if (bank.GetLength() == 0)
-        {
-            return;
-        }
-        preview = MissionLanguageDetector::DetectPreview(bank);
-        filename = GetOverviewFile(bank);
+        html->SetTextColor(PackedColor(Color(0.6, 0, 0, 1)));
+        html->LoadBuffer(RString(),
+                         RString("<html><body><br/><br/><p align=\"center\">") + blocked.brief +
+                             RString("</p></body></html>"),
+                         false);
     }
     else
     {
-        preview = MissionLanguageDetector::DetectPreview(directory + RString("\\"));
-        filename = GetOverviewFile(directory + RString("\\"));
-    }
-    if (filename.GetLength() > 0 || preview.missionViewDistance.has_value() ||
-        MissionLanguageDetector::FormatTextLanguages(preview.languages) != RString("-") ||
-        MissionLanguageDetector::FormatVoiceLanguages(preview.languages) != RString("-"))
-    {
-        LoadMissionPreviewHtml(html, filename, preview);
+        RString filename;
+        MissionLanguageDetector::MissionPreviewInfo preview;
+        if (missionType == 1)
+        {
+            RString bank = CreateSingleMissionBank(directory);
+            if (bank.GetLength() == 0)
+            {
+                return;
+            }
+            preview = MissionLanguageDetector::DetectPreview(bank);
+            filename = GetOverviewFile(bank);
+        }
+        else
+        {
+            preview = MissionLanguageDetector::DetectPreview(directory + RString("\\"));
+            filename = GetOverviewFile(directory + RString("\\"));
+        }
+        if (filename.GetLength() > 0 || preview.missionViewDistance.has_value() ||
+            MissionLanguageDetector::FormatTextLanguages(preview.languages) != RString("-") ||
+            MissionLanguageDetector::FormatVoiceLanguages(preview.languages) != RString("-"))
+        {
+            LoadMissionPreviewHtml(html, filename, preview);
+        }
     }
 
     // update buttons
     RString dir = GetMissionSaveDirectory(_directory + mission);
-    CheckContinueSave(dir);
+    EnsureContinueSave(dir);
     RString save = dir + RString("continue.fps");
     if (QIFStream::FileExists(save))
     {
@@ -635,6 +839,13 @@ void DisplaySingleMission::OnButtonClicked(int idc)
                     _directory = "";
                 }
                 LoadDirectory();
+                return;
+            }
+            else if (const MissionBlock blocked = BlockedMissionReason(lbox->GetData(sel), value);
+                     blocked.full.GetLength() > 0)
+            {
+                LOG_WARN(Mission, "Cannot play {}: {}", (const char*)lbox->GetData(sel), (const char*)blocked.full);
+                CreateMsgBox(MB_BUTTON_OK, blocked.full);
                 return;
             }
             else
@@ -990,7 +1201,7 @@ void DisplayCampaignLoad::OnChangeCampaign()
             }
         }
         RString dir = GetCampaignSaveDirectory(campaign.campaignName);
-        CheckContinueSave(dir);
+        EnsureContinueSave(dir);
         RString save = dir + RString("continue.fps");
         if (QIFStream::FileExists(save))
         {

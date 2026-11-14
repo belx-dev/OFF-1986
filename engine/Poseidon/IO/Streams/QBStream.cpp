@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <string>
+#include <vector>
 #include <Poseidon/Foundation/Containers/Array.hpp>
 #include <Poseidon/Foundation/Framework/AppFrame.hpp>
 #include <Poseidon/Foundation/Framework/DebugLog.hpp>
@@ -107,7 +108,94 @@ std::string ResolveModRootAlias(const char* name)
     ModSystem::EnumDirectories(ResolveModRootAliasCallback, &context);
     return context.resolved;
 }
+
+struct ModOverrideContext
+{
+    std::string rel;
+    std::string resolved;
+};
+
+bool ResolveModOverrideCallback(RStringB dir, void* opaque)
+{
+    if (dir.GetLength() == 0)
+        return false; // base game: served by the normal loose open, not treated as an override
+
+    auto* context = static_cast<ModOverrideContext*>(opaque);
+    std::string candidate = (const char*)dir;
+    if (!candidate.empty() && candidate.back() != '/' && candidate.back() != '\\')
+        candidate += "/";
+    candidate += context->rel;
+    if (!QIFStream::FileExists(candidate.c_str()))
+        return false;
+
+    context->resolved = std::move(candidate);
+    return true;
+}
+
+// Collapse "<seg>/.." pairs into a backslash-joined path. Empty when the name holds no "..",
+// or when a ".." would climb above the first component.
+std::string CollapseParentDirs(const char* name)
+{
+    if (!name || !strstr(name, ".."))
+        return {};
+
+    std::vector<std::string> parts;
+    for (const char* p = name; *p;)
+    {
+        const char* sep = strpbrk(p, "/\\");
+        std::string comp = sep ? std::string(p, sep - p) : std::string(p);
+        if (comp == "..")
+        {
+            if (parts.empty())
+                return {};
+            parts.pop_back();
+        }
+        else if (!comp.empty() && comp != ".")
+        {
+            parts.push_back(std::move(comp));
+        }
+        if (!sep)
+            break;
+        p = sep + 1;
+    }
+
+    std::string out;
+    for (const std::string& part : parts)
+    {
+        if (!out.empty())
+            out += '\\';
+        out += part;
+    }
+    return out;
+}
+
+// Strip a leading "addons" off a collapsed path so a root-relative intro path
+// ("anims/..\addons\<island>\intro.<world>\...") maps into island <island>'s bank; "" otherwise.
+std::string NormalizeAddonBankPath(const char* name)
+{
+    const std::string collapsed = CollapseParentDirs(name);
+    const size_t sep = collapsed.find('\\');
+    if (sep == std::string::npos || !EqualPathComponent(collapsed.substr(0, sep), "addons", 6))
+        return {};
+
+    return collapsed.substr(sep + 1);
+}
 } // namespace
+
+std::string ResolveModOverride(const char* relPath)
+{
+    if (!relPath || !*relPath)
+        return {};
+
+    ModOverrideContext context;
+    context.rel = relPath;
+    for (char& c : context.rel)
+        if (c == '\\')
+            c = '/';
+
+    ModSystem::EnumDirectories(ResolveModOverrideCallback, &context);
+    return context.resolved;
+}
 
 QFBank::QFBank()
 {
@@ -1455,6 +1543,54 @@ void QIFStreamB::AutoOpen(const char* name, IQFBankContext* context)
     if (!modAlias.empty())
     {
         QIFStream::open(modAlias.c_str());
+        if (_sharedData && !_sharedData->GetError())
+        {
+            return;
+        }
+    }
+
+    // A path can leave its own prefix and re-enter by mod folder name
+    // ("voice\..\<mod>\voice\..."); only the collapsed form names a mod root.
+    const std::string collapsed = CollapseParentDirs(name0);
+    if (!collapsed.empty())
+    {
+        QIFStream::open(collapsed.c_str());
+        if (_sharedData && !_sharedData->GetError())
+        {
+            return;
+        }
+
+        std::string collapsedAlias = ResolveModRootAlias(collapsed.c_str());
+        if (!collapsedAlias.empty())
+        {
+            QIFStream::open(collapsedAlias.c_str());
+            if (_sharedData && !_sharedData->GetError())
+            {
+                return;
+            }
+        }
+    }
+
+    if (GUseFileBanks)
+    {
+        std::string norm = NormalizeAddonBankPath(name0);
+        if (!norm.empty())
+        {
+            QFBank* bank = AutoBank(norm.c_str());
+            if (bank)
+            {
+                if (context && !context->IsAccessible(bank))
+                {
+                    RptF("AutoOpen %s: access denied", name0);
+                    return;
+                }
+                open(*bank, norm.c_str() + bank->GetPrefix().GetLength());
+                if (_sharedData)
+                {
+                    _bank = bank;
+                }
+            }
+        }
     }
 }
 
@@ -1498,7 +1634,38 @@ bool QIFStreamB::FileExist(const char* name, IQFBankContext* context)
     }
 
     std::string modAlias = ResolveModRootAlias(name);
-    return !modAlias.empty();
+    if (!modAlias.empty())
+    {
+        return true;
+    }
+
+    const std::string collapsed = CollapseParentDirs(name);
+    if (!collapsed.empty())
+    {
+        if (QIFStream::FileExists(collapsed.c_str()))
+        {
+            return true;
+        }
+        if (!ResolveModRootAlias(collapsed.c_str()).empty())
+        {
+            return true;
+        }
+    }
+
+    if (GUseFileBanks)
+    {
+        std::string norm = NormalizeAddonBankPath(name);
+        if (!norm.empty())
+        {
+            QFBank* bank = AutoBank(norm.c_str());
+            if (bank && (!context || context->IsAccessible(bank)) &&
+                bank->FileExists(norm.c_str() + bank->GetPrefix().GetLength()))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 struct EncryptorInformation

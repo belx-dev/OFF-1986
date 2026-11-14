@@ -169,6 +169,36 @@ using Poseidon::Foundation::Time;
 const float LogErrorLimit = 1.0f;
 extern const char* GameStateNames[];
 
+// The subfolder walk is case-sensitive on Linux, so the mod's own spelling has to be used.
+static std::filesystem::path ModMPMissionsDir(const std::filesystem::path& modRoot)
+{
+    std::filesystem::path dir = modRoot / GameDirs::MPMissions;
+    std::error_code ec;
+    return std::filesystem::is_directory(dir, ec) ? dir : modRoot / "mpmissions";
+}
+
+// Add an MPMissions root plus the category folders under it, so a mission grouped in
+// MPMissions/<Category>/<Sub>/<mission>.pbo is found by name. Root added even when absent.
+// A directory named "<mission>.<world>" is a mission, so it is listed but not descended into.
+static void AppendMissionDirWithSubfolders(std::vector<std::string>& dirs, const std::filesystem::path& base)
+{
+    dirs.push_back(base.string());
+    std::error_code ec;
+    for (std::filesystem::recursive_directory_iterator it(base, ec), end; !ec && it != end; it.increment(ec))
+    {
+        std::error_code dec;
+        if (!it->is_directory(dec))
+        {
+            continue;
+        }
+        dirs.push_back(it->path().string());
+        if (it.depth() + 1 >= MaxMPMissionFolderDepth || it->path().filename().string().find('.') != std::string::npos)
+        {
+            it.disable_recursion_pending();
+        }
+    }
+}
+
 std::vector<std::string> Poseidon::GetMPMissionLookupDirectories()
 {
     std::vector<std::string> dirs;
@@ -185,20 +215,19 @@ std::vector<std::string> Poseidon::GetMPMissionLookupDirectories()
                 return false;
             }
             auto* active = static_cast<ActiveModMissionDirs*>(context);
-            active->dirs->push_back((std::filesystem::path((const char*)dir) / GameDirs::MPMissions).string());
-            active->dirs->push_back((std::filesystem::path((const char*)dir) / "mpmissions").string());
+            AppendMissionDirWithSubfolders(*active->dirs, ModMPMissionsDir((const char*)dir));
             return false;
         },
         &ctx);
 
-    dirs.emplace_back((const char*)GetMPMissionsDir());
+    AppendMissionDirWithSubfolders(dirs, std::filesystem::path((const char*)GetMPMissionsDir()));
 
     if (!AppConfig::Instance().IsSimulateMode())
     {
         const std::string userDir = GamePaths::Instance().MPMissionsDir();
         if (!userDir.empty() && std::find(dirs.begin(), dirs.end(), userDir) == dirs.end())
         {
-            dirs.emplace_back(userDir);
+            AppendMissionDirWithSubfolders(dirs, std::filesystem::path(userDir));
         }
     }
     return dirs;

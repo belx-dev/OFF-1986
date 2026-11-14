@@ -99,10 +99,10 @@ set(MERGED_SUPPORT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Threads/PoThread.cpp
     $<IF:$<PLATFORM_ID:Windows>,${CMAKE_CURRENT_SOURCE_DIR}/IO/Filesystem/platform/DirScanner_win.cpp,${CMAKE_CURRENT_SOURCE_DIR}/IO/Filesystem/platform/DirScanner_posix.cpp>
     $<IF:$<PLATFORM_ID:Windows>,${CMAKE_CURRENT_SOURCE_DIR}/IO/Filesystem/platform/FileOps_win.cpp,${CMAKE_CURRENT_SOURCE_DIR}/IO/Filesystem/platform/FileOps_posix.cpp>
+    $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/IO/Filesystem/platform/Utf8Find_win.cpp>
     ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Enums/EnumNames.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/Platform.cpp
     $<IF:$<PLATFORM_ID:Windows>,${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/PlatformPaths_win.cpp,${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/PlatformPaths_posix.cpp>
-    ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/PlayerPrefs.cpp
     $<IF:$<PLATFORM_ID:Windows>,${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/ConsoleUtils_win.cpp,${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/ConsoleUtils_posix.cpp>
     ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Common/GamePaths.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Foundation/Framework/AppFrame.cpp
@@ -235,11 +235,9 @@ if(MSVC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_FRONTEN
         $<$<CXX_COMPILER_ID:Clang>:-Wno-error=non-pod-varargs>
         $<$<CXX_COMPILER_ID:Clang>:-Wno-error=c++11-narrowing>
         $<$<CXX_COMPILER_ID:Clang>:-Wno-error=ordered-compare-function-pointers>
-        $<$<CXX_COMPILER_ID:Clang>:-Wno-error>
     )
 else()
     target_compile_options(Poseidon PRIVATE
-        -Wno-error
         -Wno-c++11-narrowing
         -Wno-non-pod-varargs
         -Wno-char-subscripts

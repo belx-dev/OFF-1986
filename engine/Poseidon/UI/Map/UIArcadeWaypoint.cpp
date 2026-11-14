@@ -3,6 +3,8 @@
 
 #include <Poseidon/Core/resincl.hpp>
 #include <Poseidon/UI/Locale/StringtableExt.hpp>
+#include <Poseidon/UI/Locale/Stringtable/CodepageTranscode.hpp>
+#include <Poseidon/UI/Locale/Stringtable/Stringtable.hpp>
 #include <Poseidon/Game/Mission/MissionPathLoader.hpp>
 #include <Poseidon/IO/Streams/QBStream.hpp>
 
@@ -501,7 +503,8 @@ Control* DisplayTemplateLoad::OnCreateCtrl(int type, int idc, const ParamEntry& 
                 continue;
             }
 
-            int index = combo->AddString(Pars >> "CfgWorlds" >> name >> "description");
+            int index = combo->AddString(
+                Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage));
             combo->SetData(index, name);
 
             if (stricmp(name, Glob.header.worldname) == 0)
@@ -929,20 +932,7 @@ bool ParseCutscene(RString cutscene, bool multiplayer)
     LSError result = ar.Serialize(cutscene, CurrentTemplate, 1);
     if (result == LSNoAddOn)
     {
-        RString message = LocalizeString(IDS_MSG_ADDON_MISSING);
-        bool first = true;
-        for (int i = 0; i < CurrentTemplate.missingAddOns.Size(); i++)
-        {
-            if (first)
-            {
-                first = false;
-            }
-            else
-            {
-                message = message + RString(", ");
-            }
-            message = message + CurrentTemplate.missingAddOns[i];
-        }
+        RString message = MissingAddonMessage(CurrentTemplate.missingAddOns);
         LOG_WARN(Mission, "Cannot load {} from {}: {}", (const char*)cutscene, (const char*)name, (const char*)message);
         Poseidon::Foundation::WarningMessage(message);
     }

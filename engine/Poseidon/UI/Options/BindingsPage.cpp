@@ -34,14 +34,6 @@ const char* const kCategoryStrIds[ControlsCategoryCount] = {
     "STR_DISP_OPT_CTL_CAT_GUNNER", "STR_DISP_OPT_CTL_CAT_COMMON",
 };
 
-const char* ActionLabel(UserAction a)
-{
-    if (a < 0 || a >= UAN)
-        return "";
-    UserActionDesc* descs = InputSubsystem::GetUserActionDesc();
-    return LocalizeString(descs[a].desc);
-}
-
 struct ContextList
 {
     const InputContext* data = nullptr;
@@ -132,9 +124,64 @@ void ApplyBindingToProfile(InputProfile& profile, UserAction action, int visible
     }
 
     if (targetIdx >= 0)
+    {
         bindings[targetIdx] = binding;
+    }
     else
+    {
+        // Pad any missing lower slots with empty placeholders so the binding
+        // lands in the selected positional slot, not the first free one.
+        for (; visibleSeen < visibleSlot; ++visibleSeen)
+            bindings.push_back(InputBinding{});
         bindings.push_back(binding);
+    }
+    RebindProfile(profile, action, bindings);
+}
+
+// Drop empty placeholder slots that trail the last real binding of this device,
+// so a cleared last slot doesn't linger as a phantom cell.
+void TrimTrailingEmptySlots(std::vector<InputBinding>& bindings, const std::function<bool(int)>& deviceFilter)
+{
+    int lastReal = -1;
+    for (int i = 0; i < static_cast<int>(bindings.size()); ++i)
+        if (deviceFilter(bindings[i].code.toLegacy()) && bindings[i].code.valid())
+            lastReal = i;
+
+    std::vector<InputBinding> kept;
+    kept.reserve(bindings.size());
+    for (int i = 0; i < static_cast<int>(bindings.size()); ++i)
+    {
+        const bool emptySlot = deviceFilter(bindings[i].code.toLegacy()) && !bindings[i].code.valid();
+        if (emptySlot && i > lastReal)
+            continue;
+        kept.push_back(bindings[i]);
+    }
+    bindings.swap(kept);
+}
+
+void ClearBindingAtSlot(InputProfile& profile, UserAction action, int visibleSlot,
+                        const std::function<bool(int)>& deviceFilter)
+{
+    std::vector<InputBinding> bindings = profile.GetBindingEntries(action);
+    int visibleSeen = 0;
+    int targetIdx = -1;
+    for (int i = 0; i < static_cast<int>(bindings.size()); ++i)
+    {
+        if (!deviceFilter(bindings[i].code.toLegacy()))
+            continue;
+        if (visibleSeen == visibleSlot)
+        {
+            targetIdx = i;
+            break;
+        }
+        visibleSeen++;
+    }
+    if (targetIdx < 0)
+        return;
+    // Wipe the selected slot in place (an empty placeholder holds its position so
+    // clearing the primary does not shift the alt up), then trim trailing empties.
+    bindings[targetIdx] = InputBinding{};
+    TrimTrailingEmptySlots(bindings, deviceFilter);
     RebindProfile(profile, action, bindings);
 }
 
@@ -165,8 +212,8 @@ void BindingsPage::ResetCurrentCategoryToDefaults()
         const KeyList& keys = descs[action].keys;
         for (int i = 0; i < keys.Size(); ++i)
         {
-            if (DeviceFilter(keys[i]) && keys[i] < INPUT_DEVICE_STICK)
-                defaults.push_back(MakeBinding(keys[i], -1));
+            if (DeviceFilter(keys[i]))
+                defaults.push_back(MakeBinding(keys[i], DefaultModifierForDefaultKey(action, keys[i])));
         }
 
         for (int c = 0; c < contexts.count; ++c)
@@ -209,6 +256,46 @@ void BindingsPage::ApplyCapture(int actionIdx, int slot, int packedCode, int mod
                               filter);
 }
 
+void BindingsPage::ClearCapture(int actionIdx, int slot)
+{
+    if (actionIdx < 0 || actionIdx >= UAN)
+        return;
+    if (ClearCaptureOverride(m_category, static_cast<UserAction>(actionIdx), slot))
+        return;
+
+    auto& sub = InputSubsystem::Instance();
+    ContextList contexts = ContextsForCategory(m_category);
+    auto filter = [this](int code) { return DeviceFilter(code); };
+    for (int c = 0; c < contexts.count; ++c)
+        ClearBindingAtSlot(sub.GetProfile(contexts.data[c]), static_cast<UserAction>(actionIdx), slot, filter);
+}
+
+std::vector<UserAction> BindingsPage::FindCaptureConflicts(UserAction action, int slot, int packedCode,
+                                                           int modifier) const
+{
+    const InputProfile& profile = InputSubsystem::Instance().GetProfile(PrimaryContextForCategory(m_category));
+    std::vector<UserAction> conflicts;
+    for (int i = 0; i < UAN; ++i)
+    {
+        int visibleSlot = 0;
+        for (const InputBinding& binding : profile.GetBindingEntries(static_cast<UserAction>(i)))
+        {
+            if (!DeviceFilter(binding.code.toLegacy()))
+                continue;
+            if (!BindingMatches(binding, packedCode, modifier))
+            {
+                visibleSlot++;
+                continue;
+            }
+            if (i == action && visibleSlot == slot)
+                continue;
+            conflicts.push_back(static_cast<UserAction>(i));
+            break;
+        }
+    }
+    return conflicts;
+}
+
 void BindingsPage::RefreshAfterCapture()
 {
     if (auto* l = List())
@@ -231,6 +318,11 @@ const char* BindingsPage::BindingDisplayOverride(UserAction, ControlsCategory, i
 }
 
 bool BindingsPage::ApplyCaptureOverride(ControlsCategory, UserAction, int, int, int)
+{
+    return false;
+}
+
+bool BindingsPage::ClearCaptureOverride(ControlsCategory, UserAction, int)
 {
     return false;
 }
@@ -260,7 +352,7 @@ const char* BindingsPage::Provider::RowLabel(int row) const
         UserAction action = (UserAction)ActionIndex(row);
         if (const char* label = m_owner->ActionLabelOverride(action, m_owner->m_category))
             return label;
-        return ActionLabel((UserAction)ActionIndex(row));
+        return ControlActionLabel((UserAction)ActionIndex(row));
     }
     if (IsResetRow(row))
         return LocalizeString("STR_DISP_OPT_CTL_RESET_CAT");
@@ -323,7 +415,7 @@ namespace
 // drops the prefix.
 std::string FormatBinding(int code, int modifier)
 {
-    if (code < 0)
+    if (code <= 0) // code 0 is the empty-slot placeholder
         return "";
     std::string out;
     if (modifier >= 0)
@@ -412,33 +504,22 @@ void BindingsPage::Provider::OnBindingClicked(int row, int slot, Display& host)
         page->ApplyCapture(actionIdx, slot, packedCode, modifier, replaceConflict);
         page->RefreshAfterCapture();
     };
-    auto onConflict = [page, actionIdx, slot](int packedCode, int modifier) -> UserAction
-    {
-        auto& sub = InputSubsystem::Instance();
-        const InputProfile& profile = sub.GetProfile(PrimaryContextForCategory(page->m_category));
-        for (int i = 0; i < UAN; ++i)
-        {
-            int visibleSlot = 0;
-            const auto& bindings = profile.GetBindingEntries(static_cast<UserAction>(i));
-            for (const InputBinding& binding : bindings)
-            {
-                if (!page->DeviceFilter(binding.code.toLegacy()))
-                    continue;
-                if (!BindingMatches(binding, packedCode, modifier))
-                {
-                    visibleSlot++;
-                    continue;
-                }
-                if (i == actionIdx && visibleSlot == slot)
-                    continue;
-                return static_cast<UserAction>(i);
-            }
-        }
-        return UAN;
-    };
+    auto onConflict = [page, actionIdx, slot](int packedCode, int modifier)
+    { return page->FindCaptureConflicts(static_cast<UserAction>(actionIdx), slot, packedCode, modifier); };
 
-    shell->PushPage(m_owner->MakeCaptureModal(ActionLabel((UserAction)actionIdx), slot == 0 ? "Primary" : "Alt",
-                                              std::move(onSave), std::move(onConflict)));
+    shell->PushPage(m_owner->MakeCaptureModal((UserAction)actionIdx, ControlActionLabel((UserAction)actionIdx),
+                                              slot == 0 ? "Primary" : "Alt", std::move(onSave), std::move(onConflict)));
+}
+
+void BindingsPage::Provider::OnBindingCleared(int row, int slot)
+{
+    if (!IsActionRow(row))
+        return;
+    int actionIdx = ActionIndex(row);
+    if (actionIdx < 0 || actionIdx >= UAN)
+        return;
+    m_owner->ClearCapture(actionIdx, slot);
+    m_owner->RefreshAfterCapture();
 }
 
 void BindingsPage::Provider::OnRowAction(int row, Display& host)

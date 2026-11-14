@@ -161,6 +161,7 @@ class NetworkClient : public NetworkComponent
     // Destroy all received user messages
     void RemoveUserMessages();
 
+    using NetworkComponent::SendMsg;
     // Hi-level send of message to server
     DWORD SendMsg(NetworkSimpleObject* object, NetMsgFlags dwFlags);
     bool DXSendMsg(int to, NetworkMessageRaw& rawMsg, DWORD& msgID, NetMsgFlags dwFlags) override;
@@ -404,6 +405,7 @@ class NetworkClient : public NetworkComponent
     // Respawn unit by info given by item of respawn queue
     void DoRespawn(RespawnQueueItem& item);
 
+    void ApplySquadIdentity(int player, Person* person);
     bool TryApplySelectPlayer(const SelectPlayerMessage& message, bool allowPending);
     void TryApplyPendingSelectPlayer(NetworkId id);
     bool TryApplyChangeOwner(const ChangeOwnerMessage& message, bool allowPending);

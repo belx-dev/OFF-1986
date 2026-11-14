@@ -62,6 +62,13 @@ impl IntegrationTest {
         }
     }
 
+    /// The test's on-disk path (sqf file or scenario directory).
+    pub fn path(&self) -> &Path {
+        match &self.kind {
+            TestKind::Sqf(p) | TestKind::Mission(p) | TestKind::Multi(p) | TestKind::Seq(p) => p,
+        }
+    }
+
     /// Semaphore slots this test reserves in the parallel runner.
     ///
     /// Multi-instance tests reserve one slot per renderer process. Tests that need
@@ -481,6 +488,64 @@ pub fn filter_tests_by_tags(
         .collect()
 }
 
+/// Parse a `--shard I/N` spec into a 1-based `(index, total)`.
+pub fn parse_shard(spec: &str) -> anyhow::Result<(usize, usize)> {
+    let (i, n) = spec
+        .split_once('/')
+        .ok_or_else(|| anyhow::anyhow!("invalid --shard '{spec}', expected I/N (e.g. 1/4)"))?;
+    let index: usize = i
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid shard index in '{spec}'"))?;
+    let total: usize = n
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid shard total in '{spec}'"))?;
+    anyhow::ensure!(
+        total >= 1 && index >= 1 && index <= total,
+        "shard must be 1..=N (got '{spec}')"
+    );
+    Ok((index, total))
+}
+
+/// Weight used to balance shards: the test's declared timeout (seconds), which is
+/// a generic, tag-agnostic proxy for how slow a test is — a slow test declares a
+/// larger timeout regardless of how it is tagged.
+fn shard_weight(test: &IntegrationTest) -> u64 {
+    load_test_meta(test.path()).timeout.unwrap_or(120).max(1)
+}
+
+/// Balance tests across `total` shards by weight (longest-processing-time
+/// bin-packing) and return those assigned to shard `index` (1-based). Deterministic:
+/// heavier scenarios are placed first, each into the currently-lightest shard, so
+/// slow tests spread evenly across shards instead of clustering in one.
+pub fn select_shard(
+    tests: Vec<IntegrationTest>,
+    index: usize,
+    total: usize,
+) -> Vec<IntegrationTest> {
+    if total <= 1 {
+        return tests;
+    }
+    let mut weighted: Vec<(u64, IntegrationTest)> = tests
+        .into_iter()
+        .map(|test| (shard_weight(&test), test))
+        .collect();
+    weighted.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    let mut loads = vec![0u64; total];
+    let mut keep = Vec::new();
+    for (weight, test) in weighted {
+        let target = (0..total)
+            .min_by_key(|&shard| (loads[shard], shard))
+            .unwrap();
+        loads[target] += weight;
+        if target + 1 == index {
+            keep.push(test);
+        }
+    }
+    keep
+}
+
 /// Load sidecar TOML metadata for a test.
 ///
 /// For `foo.test.sqf`, looks for `foo.test.toml` in the same directory.
@@ -723,26 +788,29 @@ fn normalize_condition_failure(result: &str) -> String {
     }
 }
 
-fn parse_triscreenshot_label(stmt: &str) -> Option<String> {
-    let rest = stmt.trim().strip_prefix("triScreenshot")?.trim_start();
+fn parse_quoted_argument(stmt: &str, verb: &str) -> Option<String> {
+    let rest = stmt.trim().strip_prefix(verb)?.trim_start();
     let mut chars = rest.chars();
     if chars.next()? != '"' {
         return None;
     }
-
-    let mut label = String::new();
+    let mut arg = String::new();
     while let Some(c) = chars.next() {
         if c == '"' {
             if matches!(chars.clone().next(), Some('"')) {
                 chars.next();
-                label.push('"');
+                arg.push('"');
                 continue;
             }
-            return Some(label);
+            return Some(arg);
         }
-        label.push(c);
+        arg.push(c);
     }
     None
+}
+
+fn parse_triscreenshot_label(stmt: &str) -> Option<String> {
+    parse_quoted_argument(stmt, "triScreenshot")
 }
 
 async fn wait_for_screenshot_file(
@@ -1489,6 +1557,7 @@ async fn run_sqf_test(
     let statements = parse_statements(&sqf_code);
     let mut post_check_ran = false;
     let mut screenshot_seq = 0usize;
+    let mut log_mark = 0usize;
     for (i, stmt) in statements.iter().enumerate() {
         // Pre-shutdown injection: before sending a known game-exit
         // verb, run the I-20 post-check while the connection is live.
@@ -1545,6 +1614,41 @@ async fn run_sqf_test(
             .await;
             if let Some(message) = finish_condition_failure(&mut game, start, stmt, outcome).await {
                 return Ok(message);
+            }
+            continue;
+        }
+
+        // Harness-side statements: the game never sees these.  They read the
+        // stdout the runner already captures, so a scenario can assert on what
+        // the game logged.
+        if stmt.trim() == "triLogMark" {
+            log_mark = game.log_mark();
+            continue;
+        }
+        if let Some(needle) = parse_quoted_argument(stmt, "triAssertLogAbsent") {
+            // The drain task reads the stdout pipe on its own schedule, so a
+            // line the game wrote during the previous statement can still be in
+            // flight.  Let it land before deciding the log is clean.
+            tokio::time::sleep(effective_cfg.poll_interval).await;
+            let hits: Vec<String> = game
+                .log_lines_since(log_mark)
+                .into_iter()
+                .filter(|line| line.contains(&needle))
+                .collect();
+            if !hits.is_empty() {
+                game.kill_after_failure().await;
+                let elapsed = start.elapsed();
+                return Ok(ScenarioResult {
+                    passed: false,
+                    message: format!(
+                        "{} — FAIL:logged {} time(s), first: {} ({:.1}s)",
+                        stmt,
+                        hits.len(),
+                        hits[0].trim(),
+                        elapsed.as_secs_f64()
+                    ),
+                    duration: elapsed,
+                });
             }
             continue;
         }
@@ -2303,6 +2407,54 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    fn fake_test(name: &str) -> IntegrationTest {
+        IntegrationTest {
+            name: name.to_string(),
+            kind: TestKind::Sqf(PathBuf::from(format!("/x/{name}.test.sqf"))),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn shards_cover_every_test_exactly_once_and_deterministically() {
+        let mk_all = || {
+            (0..37)
+                .map(|i| fake_test(&format!("t{i:02}")))
+                .collect::<Vec<_>>()
+        };
+        let total = 4;
+        let mut seen = std::collections::BTreeSet::new();
+        for index in 1..=total {
+            for test in select_shard(mk_all(), index, total) {
+                assert!(
+                    seen.insert(test.name.clone()),
+                    "'{}' assigned to >1 shard",
+                    test.name
+                );
+            }
+        }
+        let expected: std::collections::BTreeSet<String> =
+            mk_all().into_iter().map(|t| t.name).collect();
+        assert_eq!(seen, expected, "union of shards must equal the full set");
+
+        let names = |i| {
+            select_shard(mk_all(), i, total)
+                .into_iter()
+                .map(|t| t.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(1), names(1), "same code must produce the same shard");
+    }
+
+    #[test]
+    fn parse_shard_accepts_valid_and_rejects_invalid() {
+        assert_eq!(parse_shard("1/4").unwrap(), (1, 4));
+        assert_eq!(parse_shard("4/4").unwrap(), (4, 4));
+        for bad in ["0/4", "5/4", "1/0", "x/4", "1", "1/2/3"] {
+            assert!(parse_shard(bad).is_err(), "'{bad}' should be rejected");
+        }
+    }
+
     #[test]
     fn eta_average_rate_is_sane() {
         use std::time::Duration;
@@ -2765,6 +2917,25 @@ triAssertDisplay 9099
         assert_eq!(
             parse_condition_statement("triSimUntil { triSceneReady }", "triSimUntil"),
             Some(String::from("triSceneReady"))
+        );
+    }
+
+    #[test]
+    fn parse_quoted_argument_reads_needle_and_rejects_other_verbs() {
+        assert_eq!(
+            parse_quoted_argument(
+                r#"triAssertLogAbsent "control sound""#,
+                "triAssertLogAbsent"
+            ),
+            Some("control sound".to_string())
+        );
+        assert_eq!(
+            parse_quoted_argument("triAssertLogAbsent", "triAssertLogAbsent"),
+            None
+        );
+        assert_eq!(
+            parse_quoted_argument(r#"triScreenshot "shot""#, "triAssertLogAbsent"),
+            None
         );
     }
 

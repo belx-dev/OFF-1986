@@ -20,6 +20,11 @@ TEST_CASE("CodepageForLanguage - Western European -> CP1252", "[codepage][mappin
     REQUIRE(CodepageForLanguage("Spanish") == Codepage::CP1252);
     REQUIRE(CodepageForLanguage("Dutch") == Codepage::CP1252);
     REQUIRE(CodepageForLanguage("Portuguese") == Codepage::CP1252);
+    REQUIRE(CodepageForLanguage("Danish") == Codepage::CP1252);
+    REQUIRE(CodepageForLanguage("Swedish") == Codepage::CP1252);
+    REQUIRE(CodepageForLanguage("Norwegian") == Codepage::CP1252);
+    REQUIRE(CodepageForLanguage("Finnish") == Codepage::CP1252);
+    REQUIRE(CodepageForLanguage("Icelandic") == Codepage::CP1252);
 }
 
 TEST_CASE("CodepageForLanguage - Central European -> CP1250", "[codepage][mapping]")
@@ -284,6 +289,24 @@ TEST_CASE("DecodeLegacyTextToUtf8 - all supported language preferences repair Ce
     }
 }
 
+TEST_CASE("DecodeLegacyTextToUtf8 - all supported language preferences repair Nordic mod names",
+          "[codepage][legacy][detect]")
+{
+    // A raw CfgWorlds description has no stringtable column to fall back on, so
+    // without å/æ evidence this would follow whichever codepage the active game
+    // language prefers -- misdecoding Swedish "Skärgården" as Czech under a
+    // Czech/Polish/Russian UI language (CP1250 byte 0xE5 is ĺ, not å).
+    const char* languages[] = {"English", "French", "Italian", "Spanish", "German", "Czech", "Polish", "Russian"};
+    const std::string cp1252 = "Sk\xE4rg\xE5rden"; // Skärgården (Swedish: "the archipelago")
+    const std::string expected = "Sk\xC3\xA4rg\xC3\xA5rden";
+
+    for (const char* language : languages)
+    {
+        REQUIRE(SelectLegacyTextCodepage(cp1252, CodepageForLanguage(language)) == Codepage::CP1252);
+        REQUIRE(DecodeLegacyTextToUtf8(cp1252, CodepageForLanguage(language)) == expected);
+    }
+}
+
 TEST_CASE("DecodeLegacyTextToUtf8 - all supported language preferences repair Cyrillic mod text",
           "[codepage][legacy][detect]")
 {
@@ -383,6 +406,18 @@ TEST_CASE("DecodeLegacyTextToRString - repairs Western European place names in s
     REQUIRE(std::string(decoded.Data()) == "Warnem\xC3\xBCnde");
 }
 
+// Real CfgWorlds `description` values pulled from long-published OFP community island
+// mods (Emsalo Lite by Instructor, Krono by Hornet85, Varmdolandet by Hornet85 -- see
+// https://ofp-faguss.com/islands), confirming actual legacy addon content -- not just
+// hand-built fixtures -- decodes correctly.
+TEST_CASE("DecodeLegacyTextToRString - repairs real-world island mod descriptions", "[codepage][decode][rstring]")
+{
+    REQUIRE(std::string(DecodeLegacyTextToRString("Emsal\xF6 Lite", Codepage::CP1252).Data()) == "Emsal\xC3\xB6 Lite");
+    REQUIRE(std::string(DecodeLegacyTextToRString("Kron\xF6", Codepage::CP1252).Data()) == "Kron\xC3\xB6");
+    REQUIRE(std::string(DecodeLegacyTextToRString("V\xE4rmd\xF6landet", Codepage::CP1252).Data()) ==
+            "V\xC3\xA4rmd\xC3\xB6landet");
+}
+
 TEST_CASE("TranscodeToUtf8 - Undefined codepage slot becomes U+FFFD", "[codepage][undefined]")
 {
     // In CP1252, 0x81 is undefined -> should become U+FFFD (0xEF 0xBF 0xBD in UTF-8)
@@ -451,4 +486,18 @@ TEST_CASE("TranscodeToUtf8 - Output is valid UTF-8", "[codepage][utf8_validity]"
         REQUIRE(isValidUtf8(TranscodeToUtf8(in, Codepage::CP1250)));
         REQUIRE(isValidUtf8(TranscodeToUtf8(in, Codepage::CP1251)));
     }
+}
+
+TEST_CASE("legacy-encoded folder names decode for display", "[locale][codepage][missions]")
+{
+    // Mission and category folders reach the browser as raw filesystem bytes, so a mod or a
+    // player profile written before UTF-8 carries its accents in the local codepage.
+    const std::string jine = "Jin\xE9";
+    const std::string csla = "\xC8SLA";
+
+    CHECK(DecodeLegacyTextToUtf8(jine, Codepage::CP1250) == "Jiné");
+    CHECK(DecodeLegacyTextToUtf8(csla, Codepage::CP1250) == "ČSLA");
+
+    const std::string utf8Csla = "ČSLA";
+    CHECK(DecodeLegacyTextToUtf8(utf8Csla, Codepage::CP1250) == utf8Csla);
 }

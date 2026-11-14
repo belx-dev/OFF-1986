@@ -13,6 +13,7 @@ using namespace Poseidon;
 #include <Poseidon/Graphics/Shared/PNGWriter.hpp>
 #include <Poseidon/World/Scene/Scene.hpp>
 #include <Poseidon/Network/Network.hpp>
+#include <Poseidon/Network/NetworkConfig.hpp>
 #include <Poseidon/Input/KeyInput.hpp>
 #include <Poseidon/Input/InputSubsystem.hpp>
 #include <Poseidon/Audio/IAudioSystem.hpp>
@@ -24,11 +25,15 @@ using namespace Poseidon;
 #include <Poseidon/World/Scene/Camera/Camera.hpp>
 #include <Poseidon/Graphics/Cursor/ICursorOverlay.hpp>
 #include <Poseidon/UI/Map/UIMap.hpp>
-#include <Poseidon/Core/resincl.hpp>    // IDC_* used by DisplayUI.hpp (not self-contained)
-#include <Poseidon/UI/DisplayUI.hpp>    // DisplayMultiplayer / DisplayMods for the seed verbs
-#include <Poseidon/Core/ModSystem.hpp>  // GetModList for triAssertActiveMod
+#include <Poseidon/Core/resincl.hpp> // IDC_* used by DisplayUI.hpp (not self-contained)
+#include <Poseidon/UI/DisplayUI.hpp> // DisplayMultiplayer / DisplayMods for the seed verbs
+#include <Poseidon/UI/ModDownloadSupport.hpp>
+#include <Poseidon/Core/ModSystem.hpp> // GetModList for triAssertActiveMod
+#include <Poseidon/Foundation/Common/GamePaths.hpp>
 #include <Poseidon/IO/ParamFileExt.hpp> // global Pars for triAssertConfigClass
 #include <sstream>
+#include <chrono>
+#include <thread>
 #include <Poseidon/Network/MasterServerServiceClient.hpp> // catalog entry for triSeedWorkshopMods
 #include <Poseidon/Graphics/Rendering/Draw/FontMapping.hpp>
 #include <Poseidon/Dev/Debug/DebugOverlay.hpp>
@@ -56,6 +61,8 @@ extern unsigned GTriNetSoundsReceived;
 #include <array>
 #include <cctype>
 #include <functional>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -256,7 +263,8 @@ GameValue TriHornPlayerVehicle(const GameState* /*state*/)
     EntityAI* veh = GWorld->GetRealPlayer()->Brain()->GetVehicle();
     if (!veh)
         return GameValue("FAIL:no_vehicle");
-    const char* vtype = veh->GetType() ? (const char*)veh->GetType()->GetName() : "?";
+    const RString vtypeName = veh->GetType() ? veh->GetType()->GetName() : RString("?");
+    const char* vtype = vtypeName;
     if (veh == static_cast<EntityAI*>(GWorld->GetRealPlayer()))
     {
         LOG_INFO(Core, "[tri] triHornPlayerVehicle: on foot (vehicle='{}')", vtype);
@@ -487,9 +495,27 @@ GameValue TriModsVisibleCount(const GameState* /*state*/)
     return GameValue(static_cast<float>(list->GetSize()));
 }
 
-/// triModsSetFilter "text" — set the MODS name filter directly (bypassing the
-/// Filter dialog) and refresh the Filter button label. Lets a test pin the name
-/// filtering deterministically without driving the 3D edit field. Returns true.
+GameValue TriModsFreshness(const GameState* /*state*/, GameValuePar arg)
+{
+    const int row = static_cast<int>(static_cast<GameScalarType>(arg));
+    DisplayMods* mods = dynamic_cast<DisplayMods*>(GetActiveDisplayForSQF());
+    if (mods == nullptr)
+        return GameValue("");
+    CModsList* list = dynamic_cast<CModsList*>(mods->GetCtrl(IDC_MODS_LIST));
+    if (list == nullptr || row < 0 || row >= list->GetRows().Size())
+        return GameValue("");
+    switch (list->GetRows()[row].freshness)
+    {
+        case ModRowFreshness::UpdateAvailable:
+            return GameValue("update");
+        case ModRowFreshness::Ahead:
+            return GameValue("ahead");
+        default:
+            return GameValue("current");
+    }
+}
+
+/// triModsSetFilter "text" sets the MODS name filter directly.
 GameValue TriModsSetFilter(const GameState* /*state*/, GameValuePar arg)
 {
     GameStringType text = static_cast<GameStringType>(arg);
@@ -596,11 +622,66 @@ GameValue TriSeedWorkshopMods(const GameState* /*state*/, GameValuePar arg)
     return GameValue(true);
 }
 
-/// triOpenModDownload <n> — open the download dialog (RscDisplayModDownload) as a
-/// child of the current display with n synthetic tasks and a FAKE in-process
-/// transport (no network/disk). Exercises the live dialog — two bars, speed/ETA,
-/// completion — offline. Click idc 125 (Download) to start, then again (relabeled
-/// "Continue") to dismiss on success. Returns true.
+GameValue TriFetchWorkshopMods(const GameState* /*state*/)
+{
+    DisplayMods* mods = dynamic_cast<DisplayMods*>(GetActiveDisplayForSQF());
+    if (mods == nullptr)
+        return GameValue(false);
+    std::vector<MasterServerServiceModCatalogEntry> catalog;
+    if (!FetchMasterServerServiceModList(GetNetworkMasterServer(), nullptr, nullptr, catalog))
+        return GameValue(false);
+    mods->MergeWorkshopMods(catalog);
+    return GameValue(true);
+}
+
+GameValue TriReadWorkshopFile(const GameState* /*state*/, GameValuePar arg)
+{
+    const GameArrayType& values = arg;
+    if (values.Size() != 2)
+        return GameValue("");
+    const std::string modId = (const char*)static_cast<GameStringType>(values[0]);
+    const std::filesystem::path relative((const char*)static_cast<GameStringType>(values[1]));
+    if (modId.empty() || modId.find_first_of("/\\") != std::string::npos || modId == ".." || relative.empty() ||
+        relative.is_absolute())
+        return GameValue("");
+    for (const auto& component : relative)
+    {
+        if (component == "..")
+            return GameValue("");
+    }
+    const std::filesystem::path installDir =
+        std::filesystem::path(Foundation::GamePaths::Instance().WorkshopDir()) / ("@" + modId);
+    std::ifstream input(installDir / relative, std::ios::binary);
+    if (!input)
+        return GameValue("");
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return GameValue(contents.str().c_str());
+}
+
+GameValue TriDownloadFile(const GameState* /*state*/, GameValuePar arg)
+{
+    const std::string url = (const char*)static_cast<GameStringType>(arg);
+    const std::filesystem::path dest = std::filesystem::path(GetTriOutputDir()) / "download-fixture.txt";
+    std::error_code ec;
+    std::filesystem::remove(dest, ec);
+    std::filesystem::remove(dest.string() + ".part", ec);
+    std::filesystem::remove(dest.string() + ".part.validator", ec);
+
+    DownloadTask task{"fixture", url, dest.string(), 0, {}};
+    DownloadWorker worker(MakeModDownloadTransport({}));
+    worker.Start({std::move(task)});
+    worker.Wait();
+    if (worker.Poll().failed)
+        return GameValue("");
+
+    std::ifstream input(dest, std::ios::binary);
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return GameValue(contents.str().c_str());
+}
+
+/// triOpenModDownload <n> opens the download dialog with deterministic fake tasks.
 GameValue TriOpenModDownload(const GameState* /*state*/, GameValuePar arg)
 {
     int n = static_cast<int>(static_cast<GameScalarType>(arg));
@@ -617,15 +698,20 @@ GameValue TriOpenModDownload(const GameState* /*state*/, GameValuePar arg)
         t.label = "@wsmod" + std::to_string(i + 1);
         t.url = "test://" + t.label;
         t.expectedBytes = static_cast<int64_t>(i + 1) * 4 * 1024 * 1024;
+        t.postStep = [](const DownloadTask&, std::string&) -> bool
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            return true;
+        };
         tasks.push_back(std::move(t));
     }
     // Fake transport: stream the file in two halves in-process, no I/O.
     DownloadFileFn fake = [](const DownloadTask& task, const std::function<void(int64_t, int64_t)>& onBytes,
-                             const std::function<bool()>& /*cancelled*/, std::string& /*error*/) -> bool
+                             const std::function<bool()>& /*cancelled*/, std::string& /*error*/) -> DownloadFileResult
     {
         onBytes(task.expectedBytes / 2, task.expectedBytes);
         onBytes(task.expectedBytes, task.expectedBytes);
-        return true;
+        return DownloadFileResult::Success;
     };
     display->CreateChild(new DisplayModDownload(display, std::move(tasks), std::move(fake)));
     return GameValue(true);
@@ -1086,6 +1172,38 @@ GameValue TriListSel(const GameState* /*state*/, GameValuePar arg)
     return GameValue(static_cast<float>(ListBoxCurSel(display->GetCtrl(idc))));
 }
 
+GameValue TriListSize(const GameState* /*state*/, GameValuePar arg)
+{
+    int idc = static_cast<int>(static_cast<GameScalarType>(arg));
+    auto* display = GetActiveDisplayForSQF();
+    if (!display)
+        return GameValue(static_cast<float>(-1));
+    IControl* ctrl = display->GetCtrl(idc);
+    if (auto* lb = dynamic_cast<CListBox*>(ctrl))
+        return GameValue(static_cast<float>(lb->GetSize()));
+    if (auto* lb3d = dynamic_cast<C3DListBox*>(ctrl))
+        return GameValue(static_cast<float>(lb3d->GetSize()));
+    return GameValue(static_cast<float>(-1));
+}
+
+GameValue TriListText(const GameState* /*state*/, GameValuePar arg)
+{
+    const GameArrayType& arr = arg;
+    if (arr.Size() < 2)
+        return GameValue("");
+    int idc = static_cast<int>(static_cast<GameScalarType>(arr[0]));
+    int index = static_cast<int>(static_cast<GameScalarType>(arr[1]));
+    auto* display = GetActiveDisplayForSQF();
+    if (!display)
+        return GameValue("");
+    IControl* ctrl = display->GetCtrl(idc);
+    if (auto* lb = dynamic_cast<CListBox*>(ctrl))
+        return index >= 0 && index < lb->GetSize() ? GameValue(lb->GetText(index)) : GameValue("");
+    if (auto* lb3d = dynamic_cast<C3DListBox*>(ctrl))
+        return index >= 0 && index < lb3d->GetSize() ? GameValue(lb3d->GetText(index)) : GameValue("");
+    return GameValue("");
+}
+
 /// triSelectListByData [idc, "substr"] — select the first C3DListBox row whose data
 /// (for the session list, the guid "addr:port") contains substr. Returns true if found.
 /// Lets a test pick a specific enumerated server (e.g. the 127.0.0.1 one) when LAN
@@ -1111,6 +1229,23 @@ GameValue TriSelectListByData(const GameState* /*state*/, GameValuePar arg)
             lb->SetCurSel(i);
             return GameValue(true);
         }
+    }
+    return GameValue(false);
+}
+
+GameValue TriRemoveNestedControl(const GameState* /*state*/, GameValuePar arg)
+{
+    const int idc = static_cast<int>(static_cast<GameScalarType>(arg));
+    auto* display = GetActiveDisplayForSQF();
+    if (!display)
+        return GameValue(false);
+
+    const auto& objects = display->GetObjects();
+    for (int i = 0; i < objects.Size(); ++i)
+    {
+        auto* container = dynamic_cast<ControlObjectContainer*>(objects[i].operator->());
+        if (container && container->GetCtrl(idc))
+            return GameValue(container->RemoveControl(idc));
     }
     return GameValue(false);
 }
@@ -1532,6 +1667,20 @@ GameValue TriControlText(const GameState* state, GameValuePar arg)
     if (text.empty())
         text = UITestEngine::GetHtmlText(ctrl); // mission/overview HTML preview
     return GameValue(text.c_str());
+}
+
+/// triControlDisplayText <idc>: the on-screen text of a control (clipped or
+/// marquee'd), where triControlText returns the semantic test value.
+GameValue TriControlDisplayText(const GameState* /*state*/, GameValuePar arg)
+{
+    int idc = static_cast<int>(static_cast<GameScalarType>(arg));
+    auto* display = GetActiveDisplayForSQF();
+    if (!display)
+        return GameValue("");
+    IControl* ctrl = display->GetCtrl(idc);
+    if (!ctrl)
+        return GameValue("");
+    return GameValue(UITestEngine::GetControlDisplayText(ctrl).c_str());
 }
 
 /// triAssertControlLeftOf [innerIdc, anchorIdc, maxGap] — assert the inner control

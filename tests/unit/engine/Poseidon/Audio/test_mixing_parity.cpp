@@ -879,6 +879,107 @@ TEST_CASE("OAL: stopped wave can restart after reload", "[Audio][parity][preview
     delete sys;
 }
 
+TEST_CASE("OAL: streamed OGG can restart after reload", "[Audio][parity][oal][streaming]")
+{
+    auto* sys = dynamic_cast<SoundSystemOAL*>(CreateSoundSystemOAL());
+    if (!sys)
+    {
+        SKIP("OpenAL not available");
+    }
+
+    const std::string ogg = GET_FIXTURE("audio/stream_loop.ogg");
+    auto* wave = dynamic_cast<WaveOAL*>(sys->CreateWave(ogg.c_str(), false, true));
+    if (!wave)
+    {
+        delete sys;
+        SKIP("Cannot create streamed OGG fixture wave");
+    }
+    REQUIRE(wave->IsStreamed());
+
+    const auto waitForPlayback = [&]
+    {
+        for (int i = 0; i < 80; ++i)
+        {
+            sys->Commit();
+            if (wave->State() == WaveState::Playing && wave->GetCurrentOffsetSeconds() > 0.02f)
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+    };
+
+    for (int shot = 0; shot < 4; ++shot)
+    {
+        if (shot > 0)
+            wave->Restart();
+        wave->Play();
+        REQUIRE(waitForPlayback());
+    }
+    CHECK_FALSE(wave->IsTerminated());
+
+    wave->Release();
+    delete sys;
+}
+
+TEST_CASE("OAL - streamed wave starts from the requested offset", "[Audio][parity][oal][streaming][seek]")
+{
+    auto* sys = dynamic_cast<SoundSystemOAL*>(CreateSoundSystemOAL());
+    if (!sys)
+        SKIP("OpenAL not available");
+
+    const std::string ogg = GET_FIXTURE("audio/stream_loop.ogg");
+    auto* wave = dynamic_cast<WaveOAL*>(sys->CreateWave(ogg.c_str(), false, true));
+    if (!wave)
+    {
+        delete sys;
+        SKIP("Cannot create streamed OGG fixture wave");
+    }
+    REQUIRE(wave->IsStreamed());
+
+    wave->Repeat(1);
+    wave->Skip(0.5f);
+    wave->OpenStreamingForTest();
+
+    CHECK(wave->GetCurrentOffsetSeconds() == Approx(0.5f).margin(0.01f));
+    wave->DecodeOneChunkForTest();
+    ::Poseidon::Audio::DecodedChunk chunk;
+    REQUIRE(wave->StreamingState().queue.TryPop(chunk));
+    CHECK(chunk.streamOffset > 0);
+
+    wave->Release();
+    delete sys;
+}
+
+TEST_CASE("OAL - music gain accumulates filtered fade steps", "[Audio][parity][oal][music][fade]")
+{
+    auto* sys = dynamic_cast<SoundSystemOAL*>(CreateSoundSystemOAL());
+    if (!sys)
+        SKIP("OpenAL not available");
+
+    const std::string wav = GET_FIXTURE("audio/tone.wav");
+    auto* wave = dynamic_cast<WaveOAL*>(sys->CreateWave(wav.c_str(), false, true));
+    if (!wave)
+    {
+        delete sys;
+        SKIP("Cannot create WAV fixture wave");
+    }
+
+    wave->SetKind(WaveMusic);
+    wave->SetVolume(1.0f, 1.0f, false);
+    wave->Play();
+    sys->Commit();
+    REQUIRE(wave->State() == WaveState::Playing);
+    REQUIRE(wave->AppliedGainForTest() == Approx(1.0f));
+
+    for (int i = 1; i <= 20; ++i)
+        wave->SetVolume(1.0f - 0.001f * i, 1.0f, false);
+    CHECK(wave->AppliedGainForTest() < 0.995f);
+    CHECK(wave->AppliedGainForTest() >= 0.98f);
+
+    wave->Release();
+    delete sys;
+}
+
 // End-to-end wiring: SetVolume's freq argument (the engine's pitch ratio,
 // e.g. a vehicle engine sound at rpm*1.2) must reach the real AL source as
 // AL_PITCH via the 1:1 DirectSound mapping — NOT floored at 0.5x.  Broken

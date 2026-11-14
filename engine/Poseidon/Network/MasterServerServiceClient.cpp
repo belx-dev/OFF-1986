@@ -2,11 +2,13 @@
 
 #include <Poseidon/Core/Version.hpp>
 #include <Poseidon/Network/MasterServerProtocol.hpp>
+#include <Poseidon/Network/HttpTestRewrite.hpp>
 #include <Poseidon/Network/NetworkConfig.hpp>
 #include <Poseidon/Network/XML/Xml.hpp>
 #include <Poseidon/Foundation/Platform/VersionNo.h>
 #include <cjson/cJSON.h>
 
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -31,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <string_view>
 
 namespace Poseidon
 {
@@ -192,6 +195,14 @@ bool TryParseMasterServerProxyAddress(const char* proxyServer, std::string& host
 
 namespace
 {
+constexpr long kDownloadConnectTimeoutSeconds = 10;
+constexpr long kDownloadLowSpeedBytesPerSecond = 1;
+constexpr long kDownloadLowSpeedTimeoutSeconds = 30;
+constexpr long kHttpOk = 200;
+constexpr long kHttpPartialContent = 206;
+constexpr long kHttpRangeNotSatisfiable = 416;
+constexpr std::array<long, 7> kTransientDownloadStatuses = {408, 425, 429, 500, 502, 503, 504};
+constexpr size_t kMaximumDownloadValidatorLength = 1024;
 
 size_t AppendResponseBody(char* data, size_t size, size_t count, void* userdata)
 {
@@ -302,7 +313,80 @@ struct DownloadProgressState
     void* instance;
     MasterServerServiceDownloadProgressCallback callback;
     MasterServerServiceDownloadCancelCheck cancelCheck;
+    int64_t offset;
 };
+
+struct DownloadResponseState
+{
+    long statusCode = 0;
+    int64_t contentRangeStart = -1;
+    std::string validator;
+};
+
+bool HeaderNameEquals(std::string_view lhs, std::string_view rhs)
+{
+    if (lhs.size() != rhs.size())
+        return false;
+    for (size_t i = 0; i < lhs.size(); ++i)
+    {
+        if (std::tolower(static_cast<unsigned char>(lhs[i])) != std::tolower(static_cast<unsigned char>(rhs[i])))
+            return false;
+    }
+    return true;
+}
+
+std::string_view TrimHeaderValue(std::string_view value)
+{
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+        value.remove_prefix(1);
+    while (!value.empty() && (value.back() == '\r' || value.back() == '\n' || value.back() == ' '))
+        value.remove_suffix(1);
+    return value;
+}
+
+size_t CaptureDownloadHeader(char* data, size_t size, size_t count, void* userdata)
+{
+    const size_t total = size * count;
+    auto* state = static_cast<DownloadResponseState*>(userdata);
+    if (state == nullptr)
+        return total;
+
+    const std::string_view line(data, total);
+    if (line.size() >= 5 && line.substr(0, 5) == "HTTP/")
+    {
+        long statusCode = 0;
+        const std::string text(line);
+        if (sscanf(text.c_str(), "HTTP/%*s %ld", &statusCode) == 1)
+        {
+            state->statusCode = statusCode;
+            state->contentRangeStart = -1;
+            state->validator.clear();
+        }
+        return total;
+    }
+
+    const size_t separator = line.find(':');
+    if (separator == std::string_view::npos)
+        return total;
+    const std::string_view name = line.substr(0, separator);
+    const std::string_view value = TrimHeaderValue(line.substr(separator + 1));
+    if (HeaderNameEquals(name, "ETag"))
+    {
+        state->validator.assign(value);
+    }
+    else if (HeaderNameEquals(name, "Last-Modified") && state->validator.empty())
+    {
+        state->validator.assign(value);
+    }
+    else if (HeaderNameEquals(name, "Content-Range"))
+    {
+        long long start = -1;
+        const std::string text(value);
+        if (sscanf(text.c_str(), "bytes %lld-", &start) == 1)
+            state->contentRangeStart = start;
+    }
+    return total;
+}
 
 int ReportDownloadProgress(void* userdata, curl_off_t dlTotal, curl_off_t dlNow, curl_off_t, curl_off_t)
 {
@@ -319,19 +403,20 @@ int ReportDownloadProgress(void* userdata, curl_off_t dlTotal, curl_off_t dlNow,
     }
     if (state->callback != nullptr)
     {
-        state->callback(state->instance, static_cast<int64_t>(dlNow), static_cast<int64_t>(dlTotal));
+        const int64_t total = dlTotal > 0 ? state->offset + static_cast<int64_t>(dlTotal) : 0;
+        state->callback(state->instance, state->offset + static_cast<int64_t>(dlNow), total);
     }
     return 0;
 }
 
-bool StreamMasterServerServiceDownload(const char* url, const char* proxyServer, FILE* out, void* instance,
-                                       MasterServerServiceDownloadProgressCallback progress,
-                                       MasterServerServiceDownloadCancelCheck cancelCheck, long& statusCode)
+CURLcode StreamMasterServerServiceDownload(const char* url, const char* proxyServer, FILE* out, void* instance,
+                                           MasterServerServiceDownloadProgressCallback progress,
+                                           MasterServerServiceDownloadCancelCheck cancelCheck, int64_t offset,
+                                           const std::string& validator, DownloadResponseState& response)
 {
-    statusCode = 0;
     if (url == nullptr || out == nullptr)
     {
-        return false;
+        return CURLE_BAD_FUNCTION_ARGUMENT;
     }
 
     static std::once_flag curlInitFlag;
@@ -340,19 +425,24 @@ bool StreamMasterServerServiceDownload(const char* url, const char* proxyServer,
     CURL* curl = curl_easy_init();
     if (curl == nullptr)
     {
-        return false;
+        return CURLE_FAILED_INIT;
     }
 
-    DownloadProgressState progressState{instance, progress, cancelCheck};
+    DownloadProgressState progressState{instance, progress, cancelCheck, offset};
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    const std::string effectiveUrl = ResolveHttpTestUrl(url);
+    curl_easy_setopt(curl, CURLOPT_URL, effectiveUrl.c_str());
     const std::string userAgent = BuildMasterServerServiceUserAgent("client");
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, kDownloadConnectTimeoutSeconds);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, kDownloadLowSpeedBytesPerSecond);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, kDownloadLowSpeedTimeoutSeconds);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteDownloadChunk);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, CaptureDownloadHeader);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response);
     if (progress != nullptr || cancelCheck != nullptr)
     {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -368,18 +458,78 @@ bool StreamMasterServerServiceDownload(const char* url, const char* proxyServer,
         curl_easy_setopt(curl, CURLOPT_CAINFO, caFile);
     }
 
-    const CURLcode result = curl_easy_perform(curl);
-    if (result == CURLE_OK)
+    curl_slist* headers = nullptr;
+    std::string range;
+    std::string ifRange;
+    if (offset > 0)
     {
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
+        range = std::to_string(offset) + "-";
+        curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+        ifRange = "If-Range: " + validator;
+        headers = curl_slist_append(headers, ifRange.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     }
-    else
+
+    const CURLcode result = curl_easy_perform(curl);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
+    if (result != CURLE_OK && result != CURLE_ABORTED_BY_CALLBACK)
     {
         LOG_WARN(Network, "Master server download '{}' failed: {}", url, curl_easy_strerror(result));
     }
 
+    curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    return result == CURLE_OK;
+    return result;
+}
+
+bool IsTransientDownloadError(CURLcode result)
+{
+    switch (result)
+    {
+        case CURLE_COULDNT_RESOLVE_PROXY:
+        case CURLE_COULDNT_RESOLVE_HOST:
+        case CURLE_COULDNT_CONNECT:
+        case CURLE_PARTIAL_FILE:
+        case CURLE_OPERATION_TIMEDOUT:
+        case CURLE_SEND_ERROR:
+        case CURLE_RECV_ERROR:
+        case CURLE_GOT_NOTHING:
+        case CURLE_HTTP2:
+        case CURLE_HTTP2_STREAM:
+        case CURLE_AGAIN:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsTransientDownloadStatus(long statusCode)
+{
+    for (const long transientStatus : kTransientDownloadStatuses)
+    {
+        if (statusCode == transientStatus)
+            return true;
+    }
+    return false;
+}
+
+std::string LoadDownloadValidator(const std::string& path)
+{
+    std::ifstream input(path);
+    std::string validator;
+    std::getline(input, validator);
+    if (validator.size() > kMaximumDownloadValidatorLength || validator.find_first_of("\r\n") != std::string::npos)
+        validator.clear();
+    return validator;
+}
+
+void StoreDownloadValidator(const std::string& path, const std::string& validator)
+{
+    if (validator.empty())
+        return;
+    std::ofstream output(path, std::ios::trunc);
+    if (output)
+        output << validator;
 }
 
 } // namespace
@@ -489,6 +639,7 @@ void AssignMasterServerServiceSessionInfo(const MasterServerServiceSession& sour
                                   source.requiredVersion, source.versionTag.c_str(), source.password, source.gameState,
                                   source.ping, source.numPlayers, source.maxPlayers, source.timeLeft,
                                   source.mod.c_str(), source.equalModRequired);
+    session.modPackages = &source.modPackages;
 }
 
 const char* GetMasterServerServiceSessionStringValue(const MasterServerServiceSession& session, const char* key,
@@ -664,6 +815,14 @@ std::string BuildMasterServerServiceRegistrationJson(const MasterServerServiceRe
     cJSON_AddNumberToObject(root, MasterServerFieldMaxPlayers, registration.maxPlayers);
     cJSON_AddBoolToObject(root, MasterServerFieldPassword, registration.password);
     cJSON_AddStringToObject(root, MasterServerFieldMod, registration.mod.c_str());
+    cJSON* modPackages = cJSON_AddArrayToObject(root, "modPackages");
+    for (const MasterServerServiceModPackage& package : registration.modPackages)
+    {
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "modId", package.modId.c_str());
+        cJSON_AddNumberToObject(item, "packageRevision", static_cast<double>(package.packageRevision));
+        cJSON_AddItemToArray(modPackages, item);
+    }
     cJSON_AddBoolToObject(root, MasterServerFieldEqualModRequired, registration.equalModRequired);
     cJSON_AddStringToObject(root, MasterServerFieldImplementation, registration.transportImplementation.c_str());
     cJSON_AddStringToObject(root, MasterServerFieldPlatform, registration.platform.c_str());
@@ -713,6 +872,20 @@ bool TryParseMasterServerServiceSession(const cJSON* object, MasterServerService
                                      GetMasterServerServiceJsonBool(object, MasterServerFieldEqualModRequired, false));
     session.app = GetMasterServerServiceJsonString(object, "app");
     session.stateElapsedSeconds = GetMasterServerServiceJsonInt(object, MasterServerFieldStateElapsed, 0);
+    const cJSON* modPackages = GetMasterServerServiceJsonItem(object, "modPackages");
+    if (cJSON_IsArray(modPackages))
+    {
+        const int count = cJSON_GetArraySize(modPackages);
+        for (int i = 0; i < count; ++i)
+        {
+            const cJSON* item = cJSON_GetArrayItem(modPackages, i);
+            const std::string modId = GetMasterServerServiceJsonString(item, "modId");
+            if (!modId.empty())
+            {
+                session.modPackages.push_back({modId, GetMasterServerServiceJsonInt64(item, "packageRevision", 1)});
+            }
+        }
+    }
     return true;
 }
 
@@ -731,6 +904,9 @@ bool TryParseMasterServerServiceModCatalogEntry(const cJSON* object, MasterServe
     entry.compatible = GetMasterServerServiceJsonBool(object, "compatible", false);
     entry.name = GetMasterServerServiceJsonString(object, "name");
     entry.version = GetMasterServerServiceJsonString(object, "version");
+    entry.packageRevision = GetMasterServerServiceJsonInt64(object, "packageRevision", 1);
+    entry.sha256 = GetMasterServerServiceJsonString(object, "sha256");
+    entry.publishedUnixMs = GetMasterServerServiceJsonInt64(object, "publishedUnixMs", 0);
     entry.folderName = GetMasterServerServiceJsonString(object, "folderName");
     entry.description = GetMasterServerServiceJsonString(object, "description");
     entry.homepageUrl = GetMasterServerServiceJsonString(object, "homepageUrl");
@@ -1098,50 +1274,118 @@ bool FetchMasterServerServiceModServers(const char* masterServerHost, const char
     return ok;
 }
 
-bool DownloadMasterServerServiceFile(const char* url, const char* proxyServer, const char* destPath, void* instance,
-                                     MasterServerServiceDownloadProgressCallback progress,
-                                     MasterServerServiceDownloadCancelCheck cancelCheck)
+DownloadFileResult DownloadMasterServerServiceFile(const char* url, const char* proxyServer, const char* destPath,
+                                                   void* instance, MasterServerServiceDownloadProgressCallback progress,
+                                                   MasterServerServiceDownloadCancelCheck cancelCheck,
+                                                   std::string* error)
 {
+    if (error != nullptr)
+        error->clear();
     if (url == nullptr || url[0] == 0 || destPath == nullptr || destPath[0] == 0)
     {
-        return false;
+        if (error != nullptr)
+            *error = "invalid download request";
+        return DownloadFileResult::PermanentFailure;
     }
 
     const std::string tempPath = std::string(destPath) + ".part";
+    const std::string validatorPath = tempPath + ".validator";
     std::error_code ec;
     const std::filesystem::path parent = std::filesystem::path(tempPath).parent_path();
     if (!parent.empty())
     {
         std::filesystem::create_directories(parent, ec);
     }
-    FILE* out = fopen(tempPath.c_str(), "wb");
+    std::string validator = LoadDownloadValidator(validatorPath);
+    int64_t offset = 0;
+    if (!validator.empty() && std::filesystem::exists(tempPath, ec))
+    {
+        const uintmax_t size = std::filesystem::file_size(tempPath, ec);
+        if (!ec && size <= static_cast<uintmax_t>(INT64_MAX))
+            offset = static_cast<int64_t>(size);
+    }
+    if (offset <= 0)
+    {
+        validator.clear();
+        remove(tempPath.c_str());
+        remove(validatorPath.c_str());
+    }
+
+    FILE* out = fopen(tempPath.c_str(), offset > 0 ? "ab" : "wb");
     if (out == nullptr)
     {
         LOG_WARN(Network, "Master server download cannot open temp file '{}'", tempPath);
-        return false;
+        if (error != nullptr)
+            *error = "cannot create partial download";
+        return DownloadFileResult::PermanentFailure;
     }
 
-    long statusCode = 0;
-    const bool transferred =
-        StreamMasterServerServiceDownload(url, proxyServer, out, instance, progress, cancelCheck, statusCode);
+    DownloadResponseState response;
+    const CURLcode result = StreamMasterServerServiceDownload(url, proxyServer, out, instance, progress, cancelCheck,
+                                                              offset, validator, response);
     fclose(out);
 
-    if (!transferred || !IsSuccessfulMasterServerServiceStatus(statusCode))
+    const bool cancelled = result == CURLE_ABORTED_BY_CALLBACK && cancelCheck != nullptr && cancelCheck(instance);
+    const std::string responseValidator = response.validator.empty() ? validator : response.validator;
+    if (result != CURLE_OK)
     {
-        remove(tempPath.c_str());
-        LOG_WARN(Network, "Master server download failed: url='{}' status={}", url, statusCode);
-        return false;
+        if (result == CURLE_RANGE_ERROR && offset > 0)
+        {
+            remove(tempPath.c_str());
+            remove(validatorPath.c_str());
+            if (error != nullptr)
+                *error = "server rejected download resume";
+            return DownloadFileResult::TransientFailure;
+        }
+        if (!responseValidator.empty())
+            StoreDownloadValidator(validatorPath, responseValidator);
+        else
+            remove(tempPath.c_str());
+        if (cancelled)
+            return DownloadFileResult::Cancelled;
+        if (error != nullptr)
+            *error = std::string("download transfer failed: ") + curl_easy_strerror(result);
+        return IsTransientDownloadError(result) ? DownloadFileResult::TransientFailure
+                                                : DownloadFileResult::PermanentFailure;
     }
 
-    // rename onto an existing file is not portable; clear the destination first.
+    if (offset > 0)
+    {
+        const bool validatorMatches = response.validator.empty() || response.validator == validator;
+        if (response.statusCode != kHttpPartialContent || response.contentRangeStart != offset || !validatorMatches)
+        {
+            remove(tempPath.c_str());
+            remove(validatorPath.c_str());
+            if (error != nullptr)
+                *error = "download resume was not accepted";
+            if (response.statusCode == kHttpOk || response.statusCode == kHttpRangeNotSatisfiable ||
+                IsSuccessfulMasterServerServiceStatus(response.statusCode))
+                return DownloadFileResult::TransientFailure;
+            return IsTransientDownloadStatus(response.statusCode) ? DownloadFileResult::TransientFailure
+                                                                  : DownloadFileResult::PermanentFailure;
+        }
+    }
+    else if (!IsSuccessfulMasterServerServiceStatus(response.statusCode) || response.statusCode == kHttpPartialContent)
+    {
+        remove(tempPath.c_str());
+        remove(validatorPath.c_str());
+        if (error != nullptr)
+            *error = "download server returned HTTP " + std::to_string(response.statusCode);
+        return IsTransientDownloadStatus(response.statusCode) ? DownloadFileResult::TransientFailure
+                                                              : DownloadFileResult::PermanentFailure;
+    }
+
+    remove(validatorPath.c_str());
     remove(destPath);
     if (rename(tempPath.c_str(), destPath) != 0)
     {
         remove(tempPath.c_str());
         LOG_WARN(Network, "Master server download cannot finalize '{}'", destPath);
-        return false;
+        if (error != nullptr)
+            *error = "cannot finalize downloaded file";
+        return DownloadFileResult::PermanentFailure;
     }
-    return true;
+    return DownloadFileResult::Success;
 }
 
 namespace
@@ -1183,13 +1427,9 @@ void StoreIssuedServerToken(const std::string& token)
     }
     std::lock_guard<std::mutex> lock(g_serverTokenMutex);
     g_serverToken = token;
-    if (!g_serverTokenPath.empty())
+    if (!g_serverTokenPath.empty() && !StoreMasterServerServiceTokenFile(g_serverTokenPath, token))
     {
-        std::ofstream output(g_serverTokenPath, std::ios::trunc);
-        if (output)
-        {
-            output << g_serverToken;
-        }
+        LOG_WARN(Network, "Master server token could not be persisted to '{}'", g_serverTokenPath);
     }
 }
 
@@ -1203,6 +1443,31 @@ void CaptureIssuedServerToken(const std::string& responseBody)
     }
 }
 } // namespace
+
+bool StoreMasterServerServiceTokenFile(const std::string& path, const std::string& token)
+{
+    const std::string tempPath = path + ".tmp";
+    {
+        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+        output.write(token.data(), static_cast<std::streamsize>(token.size()));
+        output.flush();
+        if (!output)
+        {
+            remove(tempPath.c_str());
+            return false;
+        }
+    }
+#if defined(_WIN32)
+    if (!MoveFileExA(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+#else
+    if (rename(tempPath.c_str(), path.c_str()) != 0)
+#endif
+    {
+        remove(tempPath.c_str());
+        return false;
+    }
+    return true;
+}
 
 void SetMasterServerServiceTokenStore(const char* tokenFilePath)
 {
@@ -1231,8 +1496,9 @@ bool PublishMasterServerServiceRegistration(const char* masterServerHost, const 
     }
     else
     {
-        LOG_WARN(Network, "Master server service {} failed: url='{}' status={}",
-                 GetMasterServerServicePublishAction(heartbeat), request.url, statusCode);
+        LOG_WARN(Network, "Master server service {} failed: url='{}' status={} response='{}'",
+                 GetMasterServerServicePublishAction(heartbeat), request.url, statusCode,
+                 SanitizeMasterServerServiceError(responseBody));
     }
     return ok;
 }
@@ -1252,7 +1518,8 @@ bool UnregisterMasterServerService(const char* masterServerHost, const char* pro
                                                           SendMasterServerServiceRequest);
     if (!ok && !IsIgnorableMasterServerServiceUnregisterStatus(statusCode))
     {
-        LOG_WARN(Network, "Master server service unregister failed: url='{}' status={}", request.url, statusCode);
+        LOG_WARN(Network, "Master server service unregister failed: url='{}' status={} response='{}'", request.url,
+                 statusCode, SanitizeMasterServerServiceError(responseBody));
     }
     return ok || IsIgnorableMasterServerServiceUnregisterStatus(statusCode);
 }

@@ -3,6 +3,10 @@
 #include <Poseidon/Core/Config/EngineConfig.hpp>
 #include <Poseidon/Core/Config/UserConfig.hpp>
 #include <Poseidon/UI/Map/UIMap.hpp>
+#include <Poseidon/UI/Controls/CursorLayout.hpp>
+#include <Poseidon/UI/LayoutCanvas.hpp>
+#include <Poseidon/UI/Locale/Stringtable/CodepageTranscode.hpp>
+#include <Poseidon/UI/Locale/Stringtable/Stringtable.hpp>
 // #include "win.h"
 #include <SDL3/SDL_scancode.h>
 #include <Poseidon/World/Entities/Infantry/Person.hpp>
@@ -1176,7 +1180,7 @@ void CStaticMap::DrawName(const ParamEntry& cls)
     float size = _sizeNames * (_invScaleX * 0.05);
     saturate(size, 0.5 * _fontNames->Height(), 2.0 * _fontNames->Height());
 
-    RString text = cls >> "name";
+    RString text = Poseidon::DecodeLegacyTextToRString(cls >> "name", GLanguage);
     float h = size;
     float w = GEngine->GetTextWidth(size, _fontNames, text);
 
@@ -2045,6 +2049,31 @@ void CStaticMap::DrawGrid()
 void CStaticMap::OnDraw(float alpha)
 {
     Precalculate();
+
+    // Zoom is polled from the bound actions (follows rebinds + gamepad); wheel is separate.
+    auto& input = InputSubsystem::Instance();
+    const float zoomIn = input.GetAction(UAMapZoomIn, false);
+    const float zoomOut = input.GetAction(UAMapZoomOut, false);
+    if (zoomIn > 0 || zoomOut > 0)
+    {
+        float dt = Glob.uiTime - _zoomLast;
+        _zoomLast = Glob.uiTime;
+        if (Glob.uiTime - _zoomStart < 0.5)
+        {
+            dt *= 0.5;
+        }
+        if (_interpolator)
+        {
+            ClearAnimation();
+        }
+        SetScale(exp(zoomIn >= zoomOut ? -dt : dt) * GetScale());
+    }
+    else
+    {
+        _zoomStart = Glob.uiTime;
+        _zoomLast = Glob.uiTime;
+    }
+
     unsigned key = _mouseKey;
     if (key == 0)
     {
@@ -2061,12 +2090,6 @@ void CStaticMap::OnDraw(float alpha)
 
         switch (key)
         {
-            case SDLK_KP_PLUS:
-                SetScale(exp(-dt) * GetScale());
-                break;
-            case SDLK_KP_MINUS:
-                SetScale(exp(dt) * GetScale());
-                break;
             case SDLK_KP_1:
                 _mapX += dt;
                 SaturateX(_mapX);
@@ -2141,8 +2164,8 @@ void CStaticMap::OnDraw(float alpha)
         {
             int wScreen = GLOB_ENGINE->Width2D();
             int hScreen = GLOB_ENGINE->Height2D();
-            const float mouseH = 16.0 / 600;
-            const float mouseW = 16.0 / 800;
+            const float mouseH = LayoutCanvas::FractionOfHeight(16.0f);
+            const float mouseW = CursorLayout::SquareWidthFraction(mouseH, wScreen, hScreen);
             float mouseX = 0.5 + InputSubsystem::Instance().GetCursorX() * 0.5;
             float mouseY = 0.5 + InputSubsystem::Instance().GetCursorY() * 0.5;
             PackedColor color = _parent->GetCursorColor();
@@ -2184,8 +2207,6 @@ bool CStaticMap::OnKeyUp(unsigned nChar, unsigned nRepCnt, unsigned nFlags)
 {
     switch (nChar)
     {
-        case SDLK_KP_PLUS:
-        case SDLK_KP_MINUS:
         case SDLK_KP_1:
         case SDLK_KP_2:
         case SDLK_KP_3:
@@ -2206,8 +2227,6 @@ bool CStaticMap::OnKeyDown(unsigned nChar, unsigned nRepCnt, unsigned nFlags)
 {
     switch (nChar)
     {
-        case SDLK_KP_PLUS:
-        case SDLK_KP_MINUS:
         case SDLK_KP_1:
         case SDLK_KP_2:
         case SDLK_KP_3:
@@ -2345,7 +2364,14 @@ void CStaticMap::OnMouseZChanged(float dz)
         return;
     }
     _moveKey = 0;
-    float scale = exp(0.1 * dz) * _scaleX;
+    auto& input = InputSubsystem::Instance();
+    const InputCode wheel = dz > 0 ? InputCode::MouseWheelUp() : InputCode::MouseWheelDown();
+    const bool zoomIn = input.IsBindingActive(UAMapZoomIn, wheel, false);
+    const bool zoomOut = input.IsBindingActive(UAMapZoomOut, wheel, false);
+    if (zoomIn == zoomOut)
+        return;
+
+    float scale = exp(0.1 * std::abs(dz) * (zoomIn ? -1.0f : 1.0f)) * _scaleX;
     saturate(scale, _scaleMin, _scaleMax);
     SetScale(scale);
 }

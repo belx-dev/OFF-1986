@@ -180,7 +180,7 @@ void EngineGL33::InitDraw(bool clear, PackedColor color)
     invalidMat.specFlags = 0;
 
     LightList lights;
-    DoSetMaterial(invalidMat, lights, Poseidon::render::LegacySpec{});
+    DoSetMaterialAndLights(invalidMat, lights, Poseidon::render::LegacySpec{});
 }
 
 void EngineGL33::FinishDraw()
@@ -519,6 +519,9 @@ void EngineGL33::ResetForRemount()
     if (_textBank)
     {
         _textBank->ReleaseAllTextures();
+        // The detail set is derived from `CfgDetailTextures`, which the reload replaces,
+        // and the bank rebuilds it only from an empty state.
+        _textBank->ReleaseDetailTextures();
     }
 }
 
@@ -534,7 +537,6 @@ bool EngineGL33::ResetHard()
     PreReset(true);
     DestroySurfaces();
 
-    DoSetGamma();
     InitGL();
 
     PostReset();
@@ -648,6 +650,23 @@ int EngineGL33::GetSwapInterval() const
     int v = 1;
     SDL_GL_GetSwapInterval(&v);
     return v;
+}
+
+void EngineGL33::StartTextInput()
+{
+    if (_sdlWindow)
+        SDL_StartTextInput(_sdlWindow);
+}
+
+void EngineGL33::StopTextInput()
+{
+    if (_sdlWindow)
+        SDL_StopTextInput(_sdlWindow);
+}
+
+bool EngineGL33::IsTextInputActive() const
+{
+    return _sdlWindow && SDL_TextInputActive(_sdlWindow);
 }
 
 bool EngineGL33::SetWindowMode(WindowMode mode)
@@ -1063,9 +1082,17 @@ void EngineGL33::ShutdownGL()
 
     DeinitVertexShaders();
     DeinitPixelShaders();
+    DestroyGammaTarget();
     DestroySamplerStates();
     DestroyVBTL();
     DestroyVB();
+
+    if (_heightMapTex)
+    {
+        GL33Bind::OnTexDeleted(_heightMapTex);
+        glDeleteTextures(1, &_heightMapTex);
+        _heightMapTex = 0;
+    }
 
     if (_fallbackWhiteTex)
     {

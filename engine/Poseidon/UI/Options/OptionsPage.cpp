@@ -2,12 +2,20 @@
 #include <Poseidon/UI/Options/OptionsShell.hpp>
 
 #include <Poseidon/Core/Global.hpp>
+#include <Poseidon/Input/InputSubsystem.hpp>
+#include <Poseidon/Input/UserActionDesc.hpp>
+#include <Poseidon/UI/Locale/Stringtable/Stringtable.hpp>
 
 #include <SDL3/SDL_keycode.h>
 #include <Poseidon/Foundation/Strings/RString.hpp>
 
 namespace Poseidon
 {
+
+const char* ControlActionLabel(UserAction action)
+{
+    return InputSubsystem::GetUserActionLabel(action);
+}
 
 void OptionsPage::SetCtrlText(Display& display, int idc, const char* text)
 {

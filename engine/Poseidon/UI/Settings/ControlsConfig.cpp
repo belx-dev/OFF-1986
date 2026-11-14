@@ -5,9 +5,8 @@
 #include <Poseidon/Input/UserActionDesc.hpp>
 
 #include <Poseidon/IO/ParamFile/ParamFile.hpp>
+#include <Poseidon/UI/Settings/SettingsFile.hpp>
 
-#include <filesystem>
-#include <system_error>
 #include <Poseidon/Foundation/Containers/Array.hpp>
 #include <Poseidon/Foundation/Strings/RString.hpp>
 
@@ -25,15 +24,15 @@ RString ModName(const UserActionDesc& desc)
     return RString("key") + RString(desc.name) + RString("_mod");
 }
 
-// True if the packed binding belongs in controls.cfg (keyboard scancodes
-// or mouse buttons).  Joystick-class entries (STICK / STICK_AXIS /
+// True if the packed binding belongs in controls.cfg (keyboard or mouse).
+// Joystick-class entries (STICK / STICK_AXIS /
 // STICK_POV) are persisted via GamepadConfig instead.
 bool IsKbmCode(int packedCode)
 {
     if (packedCode < 0)
         return false;
     int dev = packedCode & INPUT_DEVICE_MASK;
-    return dev == INPUT_DEVICE_KEYBOARD || dev == INPUT_DEVICE_MOUSE;
+    return dev == INPUT_DEVICE_KEYBOARD || dev == INPUT_DEVICE_MOUSE || dev == INPUT_DEVICE_MOUSE_AXIS;
 }
 } // namespace
 
@@ -62,12 +61,9 @@ void ControlsConfig::LoadDefaults()
 
 bool ControlsConfig::Load(const std::string& path)
 {
-    std::error_code ec;
-    if (!std::filesystem::exists(path, ec))
-        return false;
-
     ParamFile cfg;
-    cfg.Parse(RString(path.c_str()));
+    if (!ReadSettingsFile(path, cfg))
+        return false;
 
     UserActionDesc* descs = InputSubsystem::GetUserActionDesc();
     for (int i = 0; i < UAN; i++)
@@ -114,11 +110,6 @@ bool ControlsConfig::Load(const std::string& path)
 
 bool ControlsConfig::Save(const std::string& path) const
 {
-    std::error_code ec;
-    std::filesystem::path p(path);
-    if (p.has_parent_path())
-        std::filesystem::create_directories(p.parent_path(), ec);
-
     ParamFile cfg;
     UserActionDesc* descs = InputSubsystem::GetUserActionDesc();
     for (int i = 0; i < UAN; i++)
@@ -156,8 +147,7 @@ bool ControlsConfig::Save(const std::string& path) const
         }
     }
 
-    cfg.Save(RString(path.c_str()));
-    return std::filesystem::exists(path, ec);
+    return WriteSettingsFile(path, cfg);
 }
 
 } // namespace Poseidon

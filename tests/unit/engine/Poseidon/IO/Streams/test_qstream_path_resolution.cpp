@@ -5,6 +5,8 @@
 // on Linux.
 
 #include <catch2/catch_test_macros.hpp>
+#include <Poseidon/Core/ModSystem.hpp>
+#include <Poseidon/IO/Filesystem/Utf8Paths.hpp>
 #include <Poseidon/IO/Streams/QBStream.hpp>
 #include <Poseidon/IO/Streams/QStream.hpp>
 #include "../Support/test_fixtures.hpp"
@@ -221,6 +223,34 @@ TEST_CASE("QIFStream FileExists - exact path", "[qstream][path][fileexists]")
     REQUIRE(QIFStream::FileExists("nonexistent_file_12345.txt") == false);
 }
 
+TEST_CASE("QStream reads files from UTF-8 profile paths", "[qstream][path][fileexists][utf8]")
+{
+    const std::filesystem::path root = std::filesystem::temp_directory_path() /
+#ifdef _WIN32
+                                       std::filesystem::path(L"cwr_\u6d4b\u8bd5");
+    const std::filesystem::path file = root / L"face.paa";
+    const std::string rootUtf8 = Poseidon::WidePathToUtf8(root.wstring().c_str());
+    const std::string fileUtf8 = Poseidon::WidePathToUtf8(file.wstring().c_str());
+#else
+                                       std::filesystem::path("cwr_\xE6\xB5\x8B\xE8\xAF\x95");
+    const std::filesystem::path file = root / "face.paa";
+    const std::string rootUtf8 = root.string();
+    const std::string fileUtf8 = file.string();
+#endif
+    const char payload[] = "custom-face";
+
+    REQUIRE(Poseidon::CreateDirectoryUtf8(rootUtf8.c_str()));
+    REQUIRE(Poseidon::WriteFileUtf8(fileUtf8.c_str(), payload, sizeof(payload)));
+    REQUIRE(QIFStream::FileExists(fileUtf8.c_str()));
+
+    FileBufferLoaded buffer(fileUtf8.c_str());
+    REQUIRE(buffer.GetSize() == sizeof(payload));
+    CHECK(memcmp(buffer.GetData(), payload, sizeof(payload)) == 0);
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
 #ifndef _WIN32
 TEST_CASE("QIFStream FileExists - case insensitive on Linux", "[qstream][path][fileexists][linux]")
 {
@@ -247,6 +277,29 @@ TEST_CASE("QIFStream FileExists - backslash path on Linux", "[qstream][path][fil
 #endif
 
 // QIFStreamB::FileExist – bank + filesystem lookup
+
+// A path naming its mod folder through a parent escape resolves into that mod.
+TEST_CASE("QIFStreamB FileExist - mod path escaping its prefix", "[qstream][path][bankexist][mod]")
+{
+    const std::filesystem::path root = std::filesystem::temp_directory_path() / "cwr_modescape";
+    const std::filesystem::path voiceDir = root / "@voicemod" / "voice" / "Jari";
+    const char payload[] = "wss";
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+    REQUIRE(std::filesystem::create_directories(voiceDir, ec));
+    REQUIRE(Poseidon::WriteFileUtf8((voiceDir / "reportstatus.wss").string().c_str(), payload, sizeof(payload)));
+
+    Poseidon::ModSystem::SetModPath((root / "@voicemod").string().c_str());
+
+    CHECK(QIFStreamB::FileExist("@voicemod\\voice\\Jari\\reportstatus.wss"));
+    CHECK(QIFStreamB::FileExist("voice\\..\\@voicemod\\voice\\Jari\\reportstatus.wss"));
+    CHECK_FALSE(QIFStreamB::FileExist("voice\\..\\@voicemod\\voice\\Adam\\reportstatus.wss"));
+    CHECK_FALSE(QIFStreamB::FileExist("..\\@voicemod\\voice\\Jari\\reportstatus.wss"));
+
+    Poseidon::ModSystem::SetModPath("");
+    std::filesystem::remove_all(root, ec);
+}
 
 TEST_CASE("QIFStreamB FileExist - filesystem fallback", "[qstream][path][bankexist]")
 {

@@ -1,6 +1,7 @@
 #include <Poseidon/Foundation/Strings/Mbcs.hpp>
 #include <Poseidon/Foundation/Containers/Array.hpp>
 #include <Poseidon/Foundation/Framework/DebugLog.hpp>
+#include <Poseidon/Foundation/Framework/Log.hpp>
 #include <Poseidon/Foundation/Math/Interpol.hpp>
 #include <Poseidon/Foundation/Math/Math3D.hpp>
 #include <Poseidon/Foundation/Math/Math3DP.hpp>
@@ -192,6 +193,7 @@ void IControl::PlaySound(SoundPars& pars)
 {
     if (pars.name.GetLength() > 0)
     {
+        LOG_DEBUG(UI, "control sound '{}'", (const char*)pars.name);
         // float volume = GSoundsys->GetSpeechVolCoef();
         IWave* wave = GSoundScene->OpenAndPlayOnce2D(pars.name, pars.vol, pars.freq, false);
         if (wave)
@@ -682,6 +684,22 @@ bool ControlObjectContainer::SetSubControlPos(int idc, float x, float y, float w
     return false;
 }
 
+bool ControlObjectContainer::GetSubControlPos(int idc, float& x, float& y, float& w, float& h) const
+{
+    for (int i = 0; i < _controls.Size(); ++i)
+    {
+        if (_controls[i]._control && _controls[i]._control->IDC() == idc)
+        {
+            x = _controls[i].x;
+            y = _controls[i].y;
+            w = _controls[i].w;
+            h = _controls[i].h;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ControlObjectContainer::FocusCtrlByIdc(int idc)
 {
     for (int i = 0; i < _controls.Size(); ++i)
@@ -759,6 +777,16 @@ int ControlObjectContainer::GetFocusedIdc()
     }
     IControl* ctrl = _controls[_indexFocused]._control;
     return ctrl ? ctrl->IDC() : IDC();
+}
+
+bool ControlObjectContainer::WantsTextInput() const
+{
+    if (_indexFocused < 0 || _indexFocused >= _controls.Size())
+    {
+        return false;
+    }
+    IControl* ctrl = _controls[_indexFocused]._control;
+    return ctrl && ctrl->WantsTextInput();
 }
 
 bool ControlObjectContainer::CanBeDefault() const
@@ -853,6 +881,7 @@ bool ControlObjectContainer::RemoveControl(int idc)
     {
         if (_controls[i]._control && _controls[i]._control->IDC() == idc)
         {
+            const bool removedFocused = _indexFocused == i;
             // Drop tracking indices that point at (or past) this slot
             // so input dispatch doesn't read a stale pointer or address
             // the wrong neighbour after the array shifts.
@@ -873,6 +902,8 @@ bool ControlObjectContainer::RemoveControl(int idc)
             else if (_indexMove > i)
                 _indexMove--;
             _controls.Delete(i);
+            if (removedFocused)
+                UpdateTextInputState();
             return true;
         }
     }
@@ -1158,6 +1189,18 @@ void ControlObjectContainer::SetFocus(int i, bool def)
         _controls[i]._control->OnSetFocus(true, def);
     }
     _indexFocused = i;
+    UpdateTextInputState();
+}
+
+void ControlObjectContainer::UpdateTextInputState()
+{
+    if (IsFocused() && GEngine)
+    {
+        if (WantsTextInput())
+            GEngine->StartTextInput();
+        else
+            GEngine->StopTextInput();
+    }
 }
 
 bool ControlObjectContainer::NextCtrl()
@@ -1425,6 +1468,7 @@ ControlObjectContainerAnim::ControlObjectContainerAnim(ControlsContainer* parent
 
     _open = false;
     _close = false;
+    _cursorMovedSinceAnimationStart = true;
     _animSpeed = cls >> "animSpeed";
     _invAnimSpeed = 1.0 / _animSpeed;
     _skeleton = new Skeleton();
@@ -1456,6 +1500,7 @@ void ControlObjectContainerAnim::Open()
     }
     _open = true;
     _close = false;
+    _cursorMovedSinceAnimationStart = false;
     _animStart = Glob.uiTime - _phase * _invAnimSpeed;
     /*
         if (_close)
@@ -1482,6 +1527,7 @@ void ControlObjectContainerAnim::Close()
     }
     _close = true;
     _open = false;
+    _cursorMovedSinceAnimationStart = false;
     _animStart = Glob.uiTime - (1 - _phase) * _invAnimSpeed;
     /*
         if (_open)
@@ -1498,6 +1544,31 @@ void ControlObjectContainerAnim::Close()
     {
         Zoom(false);
     }
+}
+
+void ControlObjectContainerAnim::OnMouseMove(float x, float y, bool active)
+{
+    if (active)
+    {
+        _cursorMovedSinceAnimationStart = true;
+    }
+    ControlObjectContainer::OnMouseMove(x, y, active);
+}
+
+void ControlObjectContainerAnim::OnMouseHold(float x, float y, bool active)
+{
+    if (!active || (!IsAnimating() && _cursorMovedSinceAnimationStart))
+    {
+        ControlObjectContainer::OnMouseHold(x, y, active);
+        return;
+    }
+
+    if (_indexMove >= 0)
+    {
+        _controls[_indexMove]._control->OnMouseHold(x, y, false);
+        _indexMove = -1;
+    }
+    ControlObjectWithZoom::OnMouseHold(x, y, active);
 }
 
 void ControlObjectContainerAnim::Animate(int level)

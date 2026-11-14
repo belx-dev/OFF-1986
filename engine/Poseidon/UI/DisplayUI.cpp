@@ -14,6 +14,7 @@
 #include <Poseidon/World/Scene/Camera/Camera.hpp>
 
 #include <Poseidon/IO/Streams/QBStream.hpp>
+#include <Poseidon/UI/Locale/Stringtable/CodepageTranscode.hpp>
 #include <Poseidon/UI/Locale/Stringtable/Stringtable.hpp>
 
 #include <Random/randomGen.hpp>
@@ -41,7 +42,11 @@
 #include <direct.h>
 #endif
 #include <sys/stat.h>
+#include <cctype>
+#include <set>
+#include <string>
 
+#include <Poseidon/Core/ModSystem.hpp>
 #include <Poseidon/Network/Network.hpp>
 
 #include <Poseidon/Game/Chat.hpp>
@@ -481,6 +486,10 @@ RString GetKeyName(int dikCode)
             return LocalizeString(IDS_INPUT_DEVICE_MOUSE_6);
         case INPUT_DEVICE_MOUSE + 7:
             return LocalizeString(IDS_INPUT_DEVICE_MOUSE_7);
+        case INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_UP:
+            return LocalizeStringWithFallback("STR_INPUT_DEVICE_MOUSE_WHEEL_UP", "Mouse wheel up");
+        case INPUT_DEVICE_MOUSE_AXIS + INPUT_MOUSE_WHEEL_DOWN:
+            return LocalizeStringWithFallback("STR_INPUT_DEVICE_MOUSE_WHEEL_DOWN", "Mouse wheel down");
 
         case INPUT_DEVICE_STICK:
             return LocalizeString(IDS_INPUT_DEVICE_STICK_0);
@@ -909,11 +918,10 @@ void DisplayConfigure::RefreshLanguage()
 {
     if (!_keys)
         return;
-    UserActionDesc* userActionDesc = InputSubsystem::GetUserActionDesc();
     int n = _keys->GetSize();
     for (int i = 0; i < n && i < UAN; i++)
     {
-        _keys->Set(i).text = LocalizeString(userActionDesc[i].desc);
+        _keys->Set(i).text = InputSubsystem::GetUserActionLabel(static_cast<UserAction>(i));
     }
 
     // Also refresh the three C3DActiveText labels that reflect input state.
@@ -1050,10 +1058,9 @@ Control* DisplayConfigure::OnCreateCtrl(int type, int idc, const ParamEntry& cls
         case IDC_CONFIG_KEYS:
             _keys = new CKeys(this, idc, cls);
             {
-                UserActionDesc* userActionDesc = InputSubsystem::GetUserActionDesc();
                 for (int i = 0; i < UAN; i++)
                 {
-                    _keys->AddString(LocalizeString(userActionDesc[i].desc));
+                    _keys->AddString(InputSubsystem::GetUserActionLabel(static_cast<UserAction>(i)));
                     _keys->SetKeys(i, input.GetUserKeys(static_cast<UserAction>(i)));
                 }
             }
@@ -1212,7 +1219,8 @@ Control* DisplaySelectIsland::OnCreateCtrl(int type, int idc, const ParamEntry& 
                     continue;
                 }
 
-                int index = lbox->AddString(Pars >> "CfgWorlds" >> name >> "description");
+                int index = lbox->AddString(
+                    Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage));
                 lbox->SetData(index, name);
                 if (stricmp(name, Glob.header.worldname) == 0)
                 {
@@ -1338,6 +1346,11 @@ void DisplayCustomArcade::OnButtonClicked(int idc)
     }
 }
 
+namespace
+{
+bool IsModProvidedMission(const char* world, const char* mission);
+} // namespace
+
 void DisplayCustomArcade::OnChildDestroyed(int idd, int exit)
 {
     switch (idd)
@@ -1384,12 +1397,14 @@ void DisplayCustomArcade::OnChildDestroyed(int idd, int exit)
                 {
                     snprintf(buffer, sizeof(buffer), "Campaigns\\%s\\Missions\\%s.%s", (const char*)campaign,
                              (const char*)mission, (const char*)world);
+                    DeleteDirectoryStructure(buffer);
                 }
-                else
+                else if (!IsModProvidedMission(world, mission))
                 {
+                    // A mod's mission is read-only content; only base-game/user missions delete here.
                     snprintf(buffer, sizeof(buffer), "Missions\\%s.%s", (const char*)mission, (const char*)world);
+                    DeleteDirectoryStructure(buffer);
                 }
-                DeleteDirectoryStructure(buffer);
                 InsertGames();
             }
             break;
@@ -1487,6 +1502,86 @@ void DisplayCustomArcade::OnTreeSelChanged(int idc)
     Display::OnTreeSelChanged(idc);
 }
 
+namespace
+{
+// True when <mission>.<world> comes from an active mod (read-only, not deletable here).
+bool IsModProvidedMission(const char* world, const char* mission)
+{
+    struct Ctx
+    {
+        const char* world;
+        const char* mission;
+        bool isMod;
+    } ctx{world, mission, false};
+    ModSystem::EnumDirectories(
+        [](RStringB dir, void* context) -> bool
+        {
+            if (dir.GetLength() == 0)
+                return false;
+            auto* c = static_cast<Ctx*>(context);
+            char probe[512];
+            snprintf(probe, sizeof(probe), "%s/Missions/%s.%s", (const char*)dir, c->mission, c->world);
+            _finddata_t info;
+            const intptr_t h = _findfirst(probe, &info);
+            if (h != -1)
+            {
+                _findclose(h);
+                c->isMod = true;
+                return true;
+            }
+            return false;
+        },
+        &ctx);
+    return ctx.isMod;
+}
+} // namespace
+
+// Unpacked <mission>.<world> dirs under each active mod's Missions/ (mods first) then the base,
+// deduped case-folded so a mod mission wins, matching the load side.
+AutoArray<RString> CollectArcadeWorldMissions(RString world)
+{
+    struct Ctx
+    {
+        const char* world;
+        std::set<std::string> seen;
+        AutoArray<RString> names;
+    } ctx{world, {}, {}};
+    ModSystem::EnumDirectories(
+        [](RStringB dir, void* context) -> bool
+        {
+            auto* c = static_cast<Ctx*>(context);
+            char pattern[512];
+            if (dir.GetLength() == 0)
+                snprintf(pattern, sizeof(pattern), "Missions\\*.%s", c->world);
+            else
+                snprintf(pattern, sizeof(pattern), "%s/Missions\\*.%s", (const char*)dir, c->world);
+            _finddata_t info;
+            intptr_t h = _findfirst(pattern, &info);
+            if (h == -1)
+                return false;
+            do
+            {
+                if ((info.attrib & _A_SUBDIR) != 0 && info.name[0] != '.')
+                {
+                    char missionName[256];
+                    snprintf(missionName, sizeof(missionName), "%s", (const char*)info.name);
+                    char* ext = strrchr(missionName, '.');
+                    if (ext)
+                        *ext = 0;
+                    std::string key(missionName);
+                    for (char& ch : key)
+                        ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+                    if (c->seen.insert(key).second)
+                        c->names.Append() = RString(missionName);
+                }
+            } while (_findnext(h, &info) == 0);
+            _findclose(h);
+            return false;
+        },
+        &ctx);
+    return ctx.names;
+}
+
 void DisplayCustomArcade::InsertGames()
 {
     CTree* tree = dynamic_cast<CTree*>(GetCtrl(IDC_CUST_GAME));
@@ -1526,40 +1621,24 @@ void DisplayCustomArcade::InsertGames()
 
             CTreeItem* itemWorld = itemCampaign->AddChild();
 
-            itemWorld->text = Pars >> "CfgWorlds" >> name >> "description";
+            itemWorld->text =
+                Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage);
             itemWorld->data = name;
             bool wexp = stricmp(Glob.header.worldname, name) == 0;
             if (wexp && Glob.header.filename[0] == 0)
             {
                 selected = itemWorld;
             }
-            _finddata_t info;
-            char buffer[256];
-            snprintf(buffer, sizeof(buffer), "Missions\\*.%s", (const char*)name);
-            intptr_t h = _findfirst(buffer, &info);
-            if (h != -1)
+            // Base game's Missions/ plus every active mod's (mods first, additively).
+            AutoArray<RString> arcadeMissions = CollectArcadeWorldMissions(name);
+            for (int mi = 0; mi < arcadeMissions.Size(); ++mi)
             {
-                do
-                {
-                    if ((info.attrib & _A_SUBDIR) != 0 && info.name[0] != '.')
-                    {
-                        char name[256];
-                        snprintf(name, sizeof(name), "%s", (const char*)info.name);
-                        char* ext = strrchr(name, '.');
-                        if (ext)
-                        {
-                            *ext = 0;
-                        }
-                        CTreeItem* itemMission = itemWorld->AddChild();
-                        itemMission->text = name;
-                        itemMission->data = name;
-                        if (wexp && stricmp(Glob.header.filename, name) == 0)
-                        {
-                            selected = itemMission;
-                        }
-                    }
-                } while (_findnext(h, &info) == 0);
-                _findclose(h);
+                const RString& missionName = arcadeMissions[mi];
+                CTreeItem* itemMission = itemWorld->AddChild();
+                itemMission->text = missionName;
+                itemMission->data = missionName;
+                if (wexp && stricmp(Glob.header.filename, missionName) == 0)
+                    selected = itemMission;
             }
             itemWorld->SortChildren();
         }
@@ -1601,7 +1680,8 @@ void DisplayCustomArcade::InsertGames()
 
                     CTreeItem* itemWorld = itemCampaign->AddChild();
 
-                    itemWorld->text = Pars >> "CfgWorlds" >> name >> "description";
+                    itemWorld->text =
+                        Poseidon::DecodeLegacyTextToRString(Pars >> "CfgWorlds" >> name >> "description", GLanguage);
                     itemWorld->data = name;
                     bool wexp = stricmp(Glob.header.worldname, name) == 0;
                     _finddata_t info;

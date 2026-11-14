@@ -6,6 +6,7 @@
 #include <Poseidon/IO/FileServer.hpp>
 #include <Poseidon/IO/ParamFile/ParamFile.hpp>
 #include <Poseidon/IO/Serialization/ParamArchive.hpp>
+#include <Poseidon/IO/Filesystem/Utf8Paths.hpp>
 #include <Poseidon/AI/AI.hpp>
 #include <Poseidon/World/Scene/ObjectClasses.hpp>
 
@@ -520,6 +521,7 @@ void Landscape::ResampleTerrain(int sampleStepLog)
     _terrainRangeLog -= sampleStepLog;
     _terrainGrid *= sampleStep;
     _invTerrainGrid = 1 / _terrainGrid;
+    _heightmapDirty = true;
 
     MakeObjectsTerrainAbsolute();
 
@@ -925,6 +927,7 @@ void Landscape::SubdivideTerrainOneStep()
     _terrainRangeLog += 1;
     _terrainGrid /= 2;
     _invTerrainGrid = 1 / _terrainGrid;
+    _heightmapDirty = true;
 }
 
 void Landscape::SubdivideTerrain(int subdivStepLog)
@@ -976,7 +979,7 @@ static std::string GetSubdivCachePath(const char* wrpName, int targetSubdivLog)
 bool Landscape::LoadSubdivCache(int targetSubdivLog)
 {
     std::string path = GetSubdivCachePath(_name, targetSubdivLog);
-    FILE* f = fopen(path.c_str(), "rb");
+    FILE* f = OpenFileUtf8(path.c_str(), "rb");
     if (!f)
         return false;
 
@@ -1016,6 +1019,7 @@ bool Landscape::LoadSubdivCache(int targetSubdivLog)
     _terrainRangeLog = cachedTerrainRangeLog;
     _terrainGrid = cachedTerrainGrid;
     _invTerrainGrid = 1.0f / _terrainGrid;
+    _heightmapDirty = true;
 
     // Adjust objects back to absolute with new terrain heights
     MakeObjectsTerrainAbsolute();
@@ -1031,7 +1035,7 @@ bool Landscape::LoadSubdivCache(int targetSubdivLog)
 void Landscape::SaveSubdivCache(int targetSubdivLog)
 {
     std::string path = GetSubdivCachePath(_name, targetSubdivLog);
-    FILE* f = fopen(path.c_str(), "wb");
+    FILE* f = OpenFileUtf8(path.c_str(), "wb");
     if (!f)
     {
         LOG_WARN(Core, "LOAD: SubdivCache save failed: {}", path);
@@ -1924,7 +1928,7 @@ void Landscape::RebuildIDCache()
                     _objectIds[id] = obj;
                     if (id > maxId)
                     {
-                        id = maxId;
+                        maxId = id;
                     }
                 }
                 else

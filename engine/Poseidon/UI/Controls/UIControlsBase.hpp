@@ -79,6 +79,7 @@ public:
 	virtual bool OnSetFocus(bool up = true, bool def = false);	// return false if focus cannot not be gained
 
 	virtual bool OnKillFocus();	// return false if focus cannot be killed
+	virtual bool WantsTextInput() const {return false;}	// true for real text-entry controls (CEdit/C3DEdit)
 	virtual bool CanBeDefault() const {return false;}
 	bool IsDefault() {return _default;}
 	void SetDefault() {_default = true;}
@@ -277,6 +278,7 @@ public:
 	IControl *GetCtrl(float x, float y) override;
 
 	bool SetSubControlPos(int idc, float x, float y, float w, float h);
+	bool GetSubControlPos(int idc, float &x, float &y, float &w, float &h) const;
 
 	int GetHoveredIdc() const;
 
@@ -292,6 +294,7 @@ public:
 
 	IControl *GetFocused() override;
 	bool OnSetFocus(bool up = true, bool def = false) override;
+	bool WantsTextInput() const override;
 	bool CanBeDefault() const override;
 
 	void OnLButtonDown(float x, float y) override;
@@ -319,6 +322,7 @@ public:
 protected:
 	void LoadControls(const ParamEntry &cls);
 	int FindControl(float x, float y);
+	void UpdateTextInputState();
 
 	void SetFocus(int i, bool def = false);
 	bool NextCtrl();
@@ -345,6 +349,7 @@ protected:
 	float _phase;
 	float _animSpeed;
 	float _invAnimSpeed;
+	bool _cursorMovedSinceAnimationStart;
 
 public:
 
@@ -353,6 +358,8 @@ public:
 	void Animate(int level) override;
 	void Deanimate(int level) override;
 	bool IsAnimated(int level) const override {return true;}
+	void OnMouseMove(float x, float y, bool active = true) override;
+	void OnMouseHold(float x, float y, bool active = true) override;
 
 	void Open();
 	void Close();
@@ -582,6 +589,8 @@ protected:
 
 	RString _filename;
 	float _indent;
+	// Parser-only subclasses provide page and text metrics without renderer services.
+	CHTMLContainer();
 public:
 
 	CHTMLContainer(const ParamEntry &cls);
