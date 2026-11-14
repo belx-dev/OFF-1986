@@ -1,5 +1,6 @@
 # Modernization progress tracking (local only)
 *.md
+!AGENTS.md
 tmp/
 
 # Build artifacts and intermediate files
