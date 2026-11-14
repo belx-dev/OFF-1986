@@ -1307,7 +1307,7 @@ bool NetworkClient::ProcessCommand(RString command)
             {
                 const PlayerIdentity& identity = _identities[i];
                 char buffer[256];
-                snprintf(buffer, sizeof(buffer), "%d: %s (id = %s)", identity.playerid,
+                snprintf(buffer, 32, "%d: %s (id = %s)", identity.playerid,
                          (const char*)GetIdentityText(identity), (const char*)identity.id);
                 GChatList.Add(CCGlobal, nullptr, buffer, false, true);
             }
@@ -2324,11 +2324,11 @@ const char* FormatVal(float val, char* buffer)
 {
     if (val == FLT_MAX)
     {
-        snprintf(buffer, sizeof(buffer), "%s", (const char*)"MAX");
+        snprintf(buffer, 32, "%s", (const char*)"MAX");
     }
     else
     {
-        snprintf(buffer, sizeof(buffer), "%.0f", val);
+        snprintf(buffer, 32, "%.0f", val);
     }
     return buffer;
 }

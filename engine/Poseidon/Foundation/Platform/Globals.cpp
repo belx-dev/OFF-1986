@@ -102,7 +102,7 @@ void FormatLocalizedDate(const char* format, const struct tm& tmDate, char* buff
                         ptrdst++;
                     }
 #else
-                    ptrdst += snprintf(ptrdst, sizeof(ptrdst), "%d", tmDate.tm_mday);
+                    ptrdst += snprintf(ptrdst, 12, "%d", tmDate.tm_mday);
 #endif
                     ptrsrc++;
                     break;
@@ -114,7 +114,7 @@ void FormatLocalizedDate(const char* format, const struct tm& tmDate, char* buff
                         ptrdst++;
                     }
 #else
-                    ptrdst += snprintf(ptrdst, sizeof(ptrdst), "%d", tmDate.tm_year);
+                    ptrdst += snprintf(ptrdst, 12, "%d", tmDate.tm_year);
 #endif
                     ptrsrc++;
                     break;
