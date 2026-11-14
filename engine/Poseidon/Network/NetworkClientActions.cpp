@@ -1307,7 +1307,7 @@ bool NetworkClient::ProcessCommand(RString command)
             {
                 const PlayerIdentity& identity = _identities[i];
                 char buffer[256];
-                snprintf(buffer, 32, "%d: %s (id = %s)", identity.playerid,
+                snprintf(buffer, sizeof(buffer), "%d: %s (id = %s)", identity.playerid,
                          (const char*)GetIdentityText(identity), (const char*)identity.id);
                 GChatList.Add(CCGlobal, nullptr, buffer, false, true);
             }
