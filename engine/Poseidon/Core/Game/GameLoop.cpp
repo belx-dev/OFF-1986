@@ -113,6 +113,26 @@ static void SimulateWorld(float deltaT, bool& enableDraw)
     }
     GWorld->SetFixedTick(false);
 
+    // Pace diagnostics every ~5 s of wall time (profiling only; nothing here decides
+    // what is simulated, decision 0008 D4.1).
+    static DWORD lastReport = 0;
+    static uint64_t lastTicks = 0;
+    static int frames = 0;
+    ++frames;
+    const DWORD now = Poseidon::Foundation::GlobalTickCount();
+    if (lastReport == 0)
+        lastReport = now;
+    else if (now - lastReport >= 5000)
+    {
+        const float seconds = (now - lastReport) * 0.001f;
+        LOG_INFO(Core, "Fixed tick pace: {:.1f} ticks/s ({:.0f} expected), {:.1f} frames/s, backlog {:.0f} ms",
+                 (gFixedTick.TickCount() - lastTicks) / seconds, acceleration / gFixedTick.Quantum(), frames / seconds,
+                 gFixedTick.Backlog() * 1000.0f);
+        lastReport = now;
+        lastTicks = gFixedTick.TickCount();
+        frames = 0;
+    }
+
     if (ticksRun == 0)
     {
         // Nothing due: rest until the next tick instead of spinning the loop.
