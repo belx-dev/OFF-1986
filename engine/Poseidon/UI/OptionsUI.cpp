@@ -84,18 +84,18 @@ void FormatCurrency(char* buffer, float res)
 {
     if (res <= 0)
     {
-        snprintf(buffer, sizeof(buffer), "%s", (const char*)LocalizeString(IDS_CURRENCY_NONE));
+        snprintf(buffer, 128, "%s", (const char*)LocalizeString(IDS_CURRENCY_NONE));
     }
     else
     {
         if (res >= 9.9e9)
         {
-            snprintf(buffer, sizeof(buffer), "%s", (const char*)LocalizeString(IDS_CURRENCY_LOT));
+            snprintf(buffer, 128, "%s", (const char*)LocalizeString(IDS_CURRENCY_LOT));
         }
         else
         {
             char temp[128];
-            snprintf(buffer, sizeof(buffer), "%.0f", res);
+            snprintf(buffer, 128, "%.0f", res);
             int digits = strlen(buffer);
             int i = 0;
             int j = 0;
@@ -113,7 +113,7 @@ void FormatCurrency(char* buffer, float res)
             temp[i++] = buffer[j++];
             digits--;
             temp[i++] = 0;
-            snprintf(buffer, sizeof(buffer), (const char*)LocalizeString(IDS_CURRENCY_FORMAT), temp);
+            snprintf(buffer, 128, (const char*)LocalizeString(IDS_CURRENCY_FORMAT), temp);
         }
     }
 }

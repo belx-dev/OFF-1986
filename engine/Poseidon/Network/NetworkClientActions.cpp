@@ -2324,11 +2324,11 @@ const char* FormatVal(float val, char* buffer)
 {
     if (val == FLT_MAX)
     {
-        snprintf(buffer, sizeof(buffer), "%s", (const char*)"MAX");
+        snprintf(buffer, 32, "%s", (const char*)"MAX");
     }
     else
     {
-        snprintf(buffer, sizeof(buffer), "%.0f", val);
+        snprintf(buffer, 32, "%.0f", val);
     }
     return buffer;
 }
