@@ -84,9 +84,10 @@ static void ConfigureFixedTick()
                  gFixedTick.Quantum() * 1000.0f);
 }
 
-// Called once per loop iteration before input is sampled. Banks the frame time
-// and returns false when no tick is due, after resting until the next one.
-static bool FixedTickFrameBegin(float deltaT)
+// Called once per loop iteration before input is sampled (declared in
+// GameLoop.hpp). Banks the frame time and returns false when no tick is due,
+// after resting until the next one.
+bool FixedTickFrameBegin(float deltaT)
 {
     ConfigureFixedTick();
     if (!gFixedTick.Enabled() || !GWorld)
