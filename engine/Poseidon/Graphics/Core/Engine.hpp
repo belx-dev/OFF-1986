@@ -37,6 +37,7 @@ namespace render
 namespace frame
 {
 struct Draw;
+struct Frame;
 }
 } // namespace render
 
@@ -560,6 +561,11 @@ class Engine : public IGraphicsEngine
     // SceneInputs.  Default empty pointer for backends that don't
     // record draws.
     virtual const std::vector<DrawItem>* GetRecordedDraws() const { return nullptr; }
+    // Serialise a built Frame plus the backend buffers its MeshHandles
+    // reference (layout: Rendering/Frame/FrameDumpFormat.hpp).  Used by
+    // `--render-frame-dump` to feed the standalone Vulkan spike.  Backends
+    // without readable buffers return false.
+    virtual bool DumpFrameResources(const render::frame::Frame& /*frame*/, const char* /*path*/) { return false; }
     // Debug-group markers annotating pass boundaries in GPU captures
     // (RenderDoc, Nsight).  EngineGL33 forwards to glPushDebugGroup /
     // glPopDebugGroup when the function pointers are loaded and emits

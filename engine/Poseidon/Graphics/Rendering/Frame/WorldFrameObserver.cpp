@@ -10,6 +10,8 @@
 
 #include <Poseidon/Graphics/Core/Engine.hpp>
 
+#include <chrono>
+
 namespace Poseidon
 {
 
@@ -187,6 +189,32 @@ void ObserveRenderedFrame(Engine& engine, Scene& scene)
     else
     {
         s_consecutiveBlackFrames = 0;
+    }
+
+    // One-shot frame dump for the Vulkan spike — the first observed frame
+    // with enough opaque mesh draws to be a real 3D scene (the main menu
+    // qualifies).  Counts only draws that carry a mesh: queued 2D/soup
+    // draws have no buffers to dump.
+    if (!AppConfig::Instance().RenderFrameDump().empty())
+    {
+        static bool s_dumped = false;
+        unsigned int meshDraws = 0;
+        for (const Pass& p : f.passes)
+            if (p.kind == FramePassKind::WorldOpaque || p.kind == FramePassKind::WorldCutout)
+                for (const Draw& d : p.draws)
+                    if (d.mesh.vao != 0 && d.indexCount > 0)
+                        ++meshDraws;
+        static const auto s_firstObservation = std::chrono::steady_clock::now();
+        const float elapsed =
+            std::chrono::duration<float>(std::chrono::steady_clock::now() - s_firstObservation).count();
+        if (!s_dumped && meshDraws >= 20 && elapsed >= AppConfig::Instance().RenderFrameDumpAfter())
+        {
+            s_dumped = true;
+            const std::string& path = AppConfig::Instance().RenderFrameDump();
+            const bool ok = engine.DumpFrameResources(f, path.c_str());
+            LOG_INFO(Graphics, "render frame dump: {} draws ({} opaque mesh draws) at +{:.1f}s -> {} ({})",
+                     CountFrameStats(f).drawCount, meshDraws, elapsed, path.c_str(), ok ? "written" : "FAILED");
+        }
     }
 
     // Optional per-frame stats summary — gated by AppConfig flag

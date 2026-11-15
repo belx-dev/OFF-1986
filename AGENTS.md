@@ -28,6 +28,8 @@ cmake --build build/<preset-name>
   no `-dbg` suffix), `linux-x64-clang-{rwdi,rel,san,tsan,fuzz}`,
   `linux-x64-steamrt4`, and `steamrt4-x64-clang-{dbg,rwdi,rel}`.
   `-san` = ASan+UBSan, `-tsan` = TSan (Linux only), `-fuzz` = libFuzzer + `POSEIDON_BUILD_FUZZERS=ON`.
+  `linux-x64-clang-rwdi-vulkan` = rwdi plus `POSEIDON_BUILD_VULKAN_SPIKE=ON` and the vcpkg feature
+  `vulkan-spike` (header-only `vulkan-headers`; links the system Vulkan loader). Same binary dir as rwdi.
 - Custom build targets: `Format`/`FormatFix` (clang-format), `PythonLint`/`PythonLintFix`
   (Blender-addon Python, when tooling is available), `Lint`/`LintFix` (aggregate).
   There is **no** `Tidy` CMake target — a `.clang-tidy` config exists at the repo root

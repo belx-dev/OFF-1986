@@ -212,6 +212,12 @@ public:
     /// ValidateFrame) runs regardless; this flag only controls the
     /// summary log line.
     bool RenderFrameLog() const { return _renderFrameLog; }
+    /// Path for a one-shot render-frame dump (Frame + referenced GL
+    /// buffers, see Graphics/Rendering/Frame/FrameDumpFormat.hpp).  Empty =
+    /// off.  Written on the first observed frame with at least 20 opaque
+    /// mesh draws, once `--render-frame-dump-after` seconds have passed.
+    const std::string& RenderFrameDump() const { return _renderFrameDump; }
+    float RenderFrameDumpAfter() const { return _renderFrameDumpAfter; }
 
     
     // Debug & Testing
@@ -420,6 +426,8 @@ private:
     bool _noLandscape = false;
     bool _noTerrainCache = false;
     bool _renderFrameLog  = false;
+    std::string _renderFrameDump;
+    float _renderFrameDumpAfter = 0.0f;
 
     // Debug & Testing
     bool _benchmark = false;

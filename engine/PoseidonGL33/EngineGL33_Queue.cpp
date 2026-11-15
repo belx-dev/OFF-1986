@@ -338,7 +338,9 @@ void EngineGL33::BeginPass(PassId passId)
     if (GScene)
     {
         _frameState = BuildFrameState(GScene->GetCamera(), GScene->MainLight(), _bias, _fogColor, _sunEnabled);
-        _drawItems.clear();
+        // _drawItems is cleared once per frame in InitDraw, not here: a frame
+        // that goes 3D -> screen-space -> 3D (the main menu does) would
+        // otherwise reach the frame observer with only its last 3D segment.
         _currentDrawItem = DrawItem{};
 
         UploadFrameConstants(_frameState);
