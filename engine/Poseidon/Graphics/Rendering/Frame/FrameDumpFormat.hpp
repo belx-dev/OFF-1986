@@ -34,7 +34,7 @@ struct DumpHeader
     std::uint32_t meshCount = 0;
     std::uint32_t drawCount = 0;
     float view[16] = {};       // GfxMatrix bytes as uploaded to the GL UBO
-    float projection[16] = {}; // GL clip space: y up, z in [-1, 1]
+    float projection[16] = {}; // GL33 clip space: y up, depth 0..1 (glClipControl ZERO_TO_ONE)
     std::int32_t viewport[4] = {};
     float nearPlane = 0.0f;
     float farPlane = 0.0f;

@@ -38,7 +38,7 @@ namespace frame
 {
 struct Draw;
 struct Frame;
-}
+} // namespace frame
 } // namespace render
 
 class Counter

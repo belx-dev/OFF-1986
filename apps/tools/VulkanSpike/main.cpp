@@ -140,6 +140,7 @@ struct Vk
     VkQueue queue = VK_NULL_HANDLE;
     VkCommandPool pool = VK_NULL_HANDLE;
     float timestampPeriodNs = 0.0f;
+    bool timestampsValid = false; // queue family reports timestampValidBits > 0
     std::string gpuName;
 };
 
@@ -237,6 +238,7 @@ Vk createDevice(const Options& opt)
         if (qf[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
         {
             vk.queueFamily = i;
+            vk.timestampsValid = qf[i].timestampValidBits > 0;
             found = true;
         }
     if (!found)
@@ -346,6 +348,8 @@ Layout layoutOf(const dump::DumpMesh& m, const dump::DumpDraw& d)
     l.blend = d.blend;
     l.depth = d.depth;
     l.stride = m.stride;
+    if (!m.attribs[0].enabled || m.attribs[0].components != 3 || m.attribs[0].type != 0x1406 /*GL_FLOAT*/)
+        die("mesh position attribute is not 3 x GL_FLOAT; the spike only handles that layout");
     l.posOffset = m.attribs[0].offset;
     const auto& n = m.attribs[1];
     const bool hasNormal = n.enabled && n.components == 3 && n.type == 0x1406 /*GL_FLOAT*/;
@@ -699,9 +703,10 @@ int main(int argc, char** argv)
     const double tGpuDone = msSince(tStart);
 
     std::uint64_t ts[2] = {0, 0};
-    vkGetQueryPoolResults(vk.device, queries, 0, 2, sizeof(ts), ts, sizeof(std::uint64_t),
-                          VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-    const double gpuMs = double(ts[1] - ts[0]) * vk.timestampPeriodNs * 1e-6;
+    check(vkGetQueryPoolResults(vk.device, queries, 0, 2, sizeof(ts), ts, sizeof(std::uint64_t),
+                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT),
+          "vkGetQueryPoolResults");
+    const double gpuMs = vk.timestampsValid ? double(ts[1] - ts[0]) * vk.timestampPeriodNs * 1e-6 : -1.0;
 
     // Coverage: pixels that differ from the clear colour.
     const auto* px = static_cast<const unsigned char*>(readback.mapped);
@@ -724,7 +729,7 @@ int main(int argc, char** argv)
            drawsIssued, drawsSkipped, triangles, pipelines.size());
     printf("time ms: load %.1f | device %.1f | upload %.1f | pipelines %.1f | record %.1f | gpu done %.1f\n", tLoad,
            tDevice, tUpload, tPipelines, tRecord, tGpuDone);
-    printf("gpu time ms: %.3f\n", gpuMs);
+    printf("gpu time ms: %.3f%s\n", gpuMs, vk.timestampsValid ? "" : " (timestamps unsupported)");
     printf("coverage: %.2f%% of pixels touched by geometry -> %s\n", coverage, opt.outPath);
 
     vkDeviceWaitIdle(vk.device);
