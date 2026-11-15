@@ -49,7 +49,11 @@ TEST_CASE("FixedTickAccumulator: whole ticks per frame, remainder carried", "[co
     // One long 0.1 s frame yields three ticks at once.
     acc.Reset();
     acc.Add(0.1f, 1.0f);
+    REQUIRE(acc.TickDue());
+    REQUIRE(acc.TicksDue() == 3);
     REQUIRE(RunTicks(acc) == 3);
+    REQUIRE_FALSE(acc.TickDue());
+    REQUIRE(acc.TicksDue() == 0);
 }
 
 TEST_CASE("FixedTickAccumulator: acceleration runs more ticks of the same size", "[core][fixedtick]")

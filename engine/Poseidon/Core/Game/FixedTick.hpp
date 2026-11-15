@@ -40,12 +40,22 @@ class FixedTickAccumulator
             _backlog = cap;
     }
 
+    // A whole tick is due. A backlog within 0.01% of a quantum counts, so that
+    // banked float sums such as 3 x 0.1 s / (1/30 s) do not lose a tick to rounding.
+    bool TickDue() const { return Enabled() && _backlog >= _quantum * (1.0f - 1e-4f); }
+
+    // How many ConsumeTick() calls would succeed now.
+    int TicksDue() const
+    {
+        if (!Enabled())
+            return 0;
+        return static_cast<int>((_backlog + _quantum * 1e-4f) / _quantum);
+    }
+
     // Take one quantum off the backlog if a whole tick is due.
-    // A backlog within 0.01% of a quantum counts as due, so that banked float
-    // sums such as 3 x 0.1 s / (1/30 s) do not lose a tick to rounding.
     bool ConsumeTick()
     {
-        if (!Enabled() || _backlog < _quantum * (1.0f - 1e-4f))
+        if (!TickDue())
             return false;
         _backlog -= _quantum;
         if (_backlog < 0.0f)
@@ -65,12 +75,9 @@ class FixedTickAccumulator
     // Wall seconds until the next tick is due at the given acceleration.
     float SecondsUntilNextTick(float acceleration) const
     {
-        if (!Enabled())
+        if (!Enabled() || TickDue())
             return 0.0f;
-        const float missing = _quantum - _backlog;
-        if (missing <= 0.0f)
-            return 0.0f;
-        return missing / (acceleration > 0.0f ? acceleration : 1.0f);
+        return (_quantum - _backlog) / (acceleration > 0.0f ? acceleration : 1.0f);
     }
 
   private:

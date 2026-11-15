@@ -62,57 +62,60 @@ void ProcessMessagesNoWait()
 // Fixed tick (decision 0008 D1, package 2.1). Off by default: --fixed-tick=0 keeps
 // the variable step, where World::Simulate runs once per frame with the frame time.
 // With --fixed-tick=N the frame time (x acceleration) is banked and World::Simulate
-// runs once per due tick with the constant quantum. The whole function is wrapped,
-// so drawing also runs once per tick until 2.2 splits the frame.
+// runs once per due tick with the constant quantum. Only the last tick of a batch
+// draws, so presentation stays once per frame.
+//
+// Input is sampled once per frame and its edge flags (keysToDo, fireToDo) are
+// cleared every frame, so FixedTickFrameBegin decides *before* input sampling
+// whether this frame runs a tick and skips the frame otherwise. In a catch-up
+// batch every tick of the batch sees the same frame's flags; that only happens
+// when the machine cannot keep up and goes away with 2.2.
 static FixedTickAccumulator gFixedTick;
 
-static void SimulateWorld(float deltaT, bool& enableDraw)
+static void ConfigureFixedTick()
 {
     static bool configured = false;
-    if (!configured)
-    {
-        gFixedTick.Configure(AppConfig::Instance().GetFixedTickHz());
-        configured = true;
-        if (gFixedTick.Enabled())
-            LOG_INFO(Core, "Fixed tick enabled: {} Hz ({:.2f} ms quantum)", AppConfig::Instance().GetFixedTickHz(),
-                     gFixedTick.Quantum() * 1000.0f);
-    }
-
-    if (!gFixedTick.Enabled())
-    {
-        GWorld->Simulate(deltaT, enableDraw);
+    if (configured)
         return;
-    }
+    configured = true;
+    gFixedTick.Configure(AppConfig::Instance().GetFixedTickHz());
+    if (gFixedTick.Enabled())
+        LOG_INFO(Core, "Fixed tick enabled: {} Hz ({:.2f} ms quantum)", AppConfig::Instance().GetFixedTickHz(),
+                 gFixedTick.Quantum() * 1000.0f);
+}
 
+// Called once per loop iteration before input is sampled. Banks the frame time
+// and returns false when no tick is due, after resting until the next one.
+static bool FixedTickFrameBegin(float deltaT)
+{
+    ConfigureFixedTick();
+    if (!gFixedTick.Enabled() || !GWorld)
+        return true;
     if (!GWorld->IsSimulationEnabled())
     {
-        // Paused: game time does not advance, so there is no tick to run. UI, camera
-        // and drawing keep their per-frame cadence, and the backlog is dropped so
-        // resuming does not burst catch-up ticks (D1.5).
+        // Paused: game time does not advance. UI, camera and drawing keep their
+        // per-frame cadence, and the backlog is dropped so resuming does not
+        // burst catch-up ticks (D1.5).
         gFixedTick.Reset();
-        GWorld->SetFixedTick(false);
-        GWorld->Simulate(deltaT, enableDraw);
-        return;
+        return true;
     }
-
     // Acceleration multiplies the accumulator input (D1.4). The value is the one
     // the previous tick left behind; a change made by this frame's input takes
     // effect from the next frame.
     const float acceleration = GWorld->GetAcceleratedTime();
     gFixedTick.Add(deltaT * acceleration, acceleration);
+    if (gFixedTick.TickDue())
+        return true;
+    // Rest until the next tick instead of spinning; round up so the next frame
+    // is due rather than one Sleep() granule short.
+    const int sleepMs = static_cast<int>(gFixedTick.SecondsUntilNextTick(acceleration) * 1000.0f + 0.999f);
+    if (sleepMs > 0)
+        Sleep(sleepMs);
+    return false;
+}
 
-    int ticksRun = 0;
-    while (gFixedTick.ConsumeTick())
-    {
-        GWorld->SetFixedTick(true);
-        GWorld->Simulate(gFixedTick.Quantum(), enableDraw);
-        ++ticksRun;
-        // A tick may end the mission or the game; the next frame starts over.
-        if (!GWorld || Glob.exit)
-            return;
-    }
-    GWorld->SetFixedTick(false);
-
+static void FixedTickReportPace(float acceleration)
+{
     // Pace diagnostics every ~5 s of wall time (profiling only; nothing here decides
     // what is simulated, decision 0008 D4.1).
     static DWORD lastReport = 0;
@@ -132,14 +135,42 @@ static void SimulateWorld(float deltaT, bool& enableDraw)
         lastTicks = gFixedTick.TickCount();
         frames = 0;
     }
+}
 
-    if (ticksRun == 0)
+static void SimulateWorld(float deltaT, bool& enableDraw)
+{
+    ConfigureFixedTick();
+    if (!gFixedTick.Enabled() || !GWorld->IsSimulationEnabled())
     {
-        // Nothing due: rest until the next tick instead of spinning the loop.
-        const int sleepMs = static_cast<int>(gFixedTick.SecondsUntilNextTick(acceleration) * 1000.0f);
-        if (sleepMs > 0)
-            Sleep(sleepMs);
+        // Variable step, or paused under the fixed tick (see FixedTickFrameBegin).
+        if (gFixedTick.Enabled())
+            gFixedTick.Reset();
+        GWorld->Simulate(deltaT, enableDraw);
+        return;
     }
+
+    const float acceleration = GWorld->GetAcceleratedTime();
+    const int ticks = gFixedTick.TicksDue();
+    for (int i = 0; i < ticks && gFixedTick.ConsumeTick(); ++i)
+    {
+        bool drawThisTick = enableDraw && i == ticks - 1;
+        GWorld->SetFixedTick(true);
+        GWorld->Simulate(gFixedTick.Quantum(), drawThisTick);
+        if (i == ticks - 1)
+            enableDraw = drawThisTick;
+        if (!GWorld)
+            return; // the tick replaced the world; the next frame starts over
+        GWorld->SetFixedTick(false);
+        if (Glob.exit)
+            return;
+        if (!GWorld->IsSimulationEnabled())
+        {
+            // The tick paused the game: the rest of the batch must not run.
+            gFixedTick.Reset();
+            break;
+        }
+    }
+    FixedTickReportPace(acceleration);
 }
 
 void RenderFrame(float deltaT, bool enableDraw)
@@ -317,6 +348,10 @@ bool AppIdle()
         deltaT = 1.0 / 10;
     }
 #endif
+
+    // Fixed tick: skip this frame, before any input is sampled, if no tick is due.
+    if (!FixedTickFrameBegin(deltaT))
+        return false;
 
     if (GApp->m_canRender)
     {
