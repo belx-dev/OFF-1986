@@ -109,6 +109,9 @@ public:
     /// TaskPool thread cap override (-1 = auto/capped, 0 = uncapped, >0 = explicit)
     int GetMaxThreads() const { return _maxThreads; }
 
+    /// Fixed simulation tick rate in Hz (--fixed-tick N), 0 = variable step
+    int GetFixedTickHz() const { return _fixedTickHz; }
+
     /// Master server / directory host override
     const RString& GetMasterServer() const { return _masterServer; }
 
@@ -382,6 +385,7 @@ private:
     RString _advertiseAddress;
     int _maxMemMB = 0;
     int _maxThreads = -1;
+    int _fixedTickHz = 0;
     bool _privateServer = false;
     bool _publicServer = false;
     RString _masterServer;

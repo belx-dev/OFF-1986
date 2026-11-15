@@ -599,6 +599,12 @@ void AppConfig::ParseCommandLine(int argc, char** argv)
                          "core); >0 = explicit count.")
             ->check(CLI::Range(0, 1024));
 
+        perfGroup
+            ->add_option("--fixed-tick", _fixedTickHz,
+                         "Run the simulation on a fixed tick of N Hz (accumulator around World::Simulate, "
+                         "decision 0008). 0 = variable step (default).")
+            ->check(CLI::Range(0, 1000));
+
         auto* debugGroup = app.add_option_group("Debug & Testing", "Development and testing options");
 
         showOption(debugGroup->add_flag("--benchmark", _benchmark, "Benchmark mode"), CliHelpVisibility::Dev);

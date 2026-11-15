@@ -210,7 +210,18 @@ void World::Simulate(float deltaT, bool& enableDraw)
                 // SetActiveChannels();
             }
         }
-        deltaT *= _acceleratedTime;
+        if (_fixedTick)
+        {
+            // Fixed tick (decision 0008 D1.4): deltaT is already the accelerated
+            // quantum; the game loop ran more ticks instead of a longer step.
+            // UI and camera get this tick's share of wall time.
+            if (_acceleratedTime > 0)
+                noAccDeltaT = deltaT / _acceleratedTime;
+        }
+        else
+        {
+            deltaT *= _acceleratedTime;
+        }
     }
 
     if (input.CheatActivated() == CheatGodMode)

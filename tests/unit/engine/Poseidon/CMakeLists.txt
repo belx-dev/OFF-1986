@@ -182,6 +182,7 @@ list(APPEND POSEIDON_TEST_SOURCES
     # Core tests
     UI/Locale/test_supported_languages.cpp
     Core/test_engine_config.cpp
+    Core/Game/test_fixed_tick.cpp
     Core/test_application_exit.cpp
     Core/test_window_close.cpp
     Core/test_user_config.cpp

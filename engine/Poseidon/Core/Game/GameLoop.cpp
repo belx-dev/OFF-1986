@@ -1,4 +1,5 @@
 #include <Poseidon/Core/Game/GameLoop.hpp>
+#include <Poseidon/Core/Game/FixedTick.hpp>
 #include <Poseidon/Core/Config/EngineConfig.hpp>
 #include <Poseidon/Core/Config/Config.hpp>
 #include <Poseidon/Foundation/Platform/AppConfig.hpp>
@@ -58,6 +59,69 @@ void ProcessMessagesNoWait()
         SDL_PumpEvents();
 }
 
+// Fixed tick (decision 0008 D1, package 2.1). Off by default: --fixed-tick=0 keeps
+// the variable step, where World::Simulate runs once per frame with the frame time.
+// With --fixed-tick=N the frame time (x acceleration) is banked and World::Simulate
+// runs once per due tick with the constant quantum. The whole function is wrapped,
+// so drawing also runs once per tick until 2.2 splits the frame.
+static FixedTickAccumulator gFixedTick;
+
+static void SimulateWorld(float deltaT, bool& enableDraw)
+{
+    static bool configured = false;
+    if (!configured)
+    {
+        gFixedTick.Configure(AppConfig::Instance().GetFixedTickHz());
+        configured = true;
+        if (gFixedTick.Enabled())
+            LOG_INFO(Core, "Fixed tick enabled: {} Hz ({:.2f} ms quantum)", AppConfig::Instance().GetFixedTickHz(),
+                     gFixedTick.Quantum() * 1000.0f);
+    }
+
+    if (!gFixedTick.Enabled())
+    {
+        GWorld->Simulate(deltaT, enableDraw);
+        return;
+    }
+
+    if (!GWorld->IsSimulationEnabled())
+    {
+        // Paused: game time does not advance, so there is no tick to run. UI, camera
+        // and drawing keep their per-frame cadence, and the backlog is dropped so
+        // resuming does not burst catch-up ticks (D1.5).
+        gFixedTick.Reset();
+        GWorld->SetFixedTick(false);
+        GWorld->Simulate(deltaT, enableDraw);
+        return;
+    }
+
+    // Acceleration multiplies the accumulator input (D1.4). The value is the one
+    // the previous tick left behind; a change made by this frame's input takes
+    // effect from the next frame.
+    const float acceleration = GWorld->GetAcceleratedTime();
+    gFixedTick.Add(deltaT * acceleration, acceleration);
+
+    int ticksRun = 0;
+    while (gFixedTick.ConsumeTick())
+    {
+        GWorld->SetFixedTick(true);
+        GWorld->Simulate(gFixedTick.Quantum(), enableDraw);
+        ++ticksRun;
+        // A tick may end the mission or the game; the next frame starts over.
+        if (!GWorld || Glob.exit)
+            return;
+    }
+    GWorld->SetFixedTick(false);
+
+    if (ticksRun == 0)
+    {
+        // Nothing due: rest until the next tick instead of spinning the loop.
+        const int sleepMs = static_cast<int>(gFixedTick.SecondsUntilNextTick(acceleration) * 1000.0f);
+        if (sleepMs > 0)
+            Sleep(sleepMs);
+    }
+}
+
 void RenderFrame(float deltaT, bool enableDraw)
 {
     if (Glob.exit)
@@ -75,7 +139,7 @@ void RenderFrame(float deltaT, bool enableDraw)
     GWorld->SetSimulationFocus(enableDraw);
     if (GSoundsys)
         GSoundsys->SetSimulationRunning(GWorld->IsSimulationEnabled());
-    GWorld->Simulate(deltaT, enableDraw);
+    SimulateWorld(deltaT, enableDraw);
 
     GApp->m_forceRender = false;
 

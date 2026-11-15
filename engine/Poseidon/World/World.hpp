@@ -221,6 +221,7 @@ class World
 	GameMode _mode;
 	
 	float _acceleratedTime;
+	bool _fixedTick = false;
 	bool _firstFrame;
 
 	Foundation::UITime _channelChanged;
@@ -584,6 +585,10 @@ class World
 	void SwitchPlayerTo(Person *veh);
 
 	float GetAcceleratedTime() const {return _acceleratedTime;}
+	// Fixed tick (decision 0008 D1): when set, Simulate's deltaT is one tick quantum
+	// with time acceleration already applied by the game loop running more ticks.
+	void SetFixedTick(bool on) {_fixedTick = on;}
+	bool IsFixedTick() const {return _fixedTick;}
 	void SetAcceleratedTime( float time ) {_acceleratedTime=time;}
 	
 	void SkipTime(float time);

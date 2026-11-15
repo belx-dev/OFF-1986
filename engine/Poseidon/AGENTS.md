@@ -11,7 +11,7 @@ maps do not exist yet. Each subsystem's own `AGENTS.md` is a later task. Read th
 | `AI/` | AI center, groups, subgroups, units, radio, vehicle AI, arcade templates, AI path code |
 | `Asset/` | Addon, cache, formats and probe code for game assets |
 | `Audio/` | Audio factory, sound scene, speaker, streaming, text, voice, capture and dummy backends |
-| `Core/` | Application, config, download, mod system, profiles, progress, server, FSM and game state |
+| `Core/` | Application, config, download, mod system, profiles, progress, server, FSM and game state. `Core/Game/GameLoop.cpp` is the frame loop (`AppIdle` → `RenderFrame` → `World::Simulate`); `Core/Game/FixedTick.hpp` is the `--fixed-tick` accumulator (off by default, decision 0008 D1) |
 | `Dev/` | Debug, diagnostics and test harness code |
 | `Foundation/` | Base layer: algorithms, containers, enums, math, memory, logging, platform, strings, threads, time, types |
 | `Game/` | Chat, editor, operation map, mission, scripting, commands and UI action types |
