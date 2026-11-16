@@ -124,14 +124,18 @@ void World::Simulate(float deltaT, bool& enableDraw)
     // Frame-phase profiler — feeds the dev panel Perf tab and triPerfStats.
     Dev::FrameProfiler& perf = Dev::GFrameProfiler();
     perf.BeginFrame();
-    float noAccDeltaT = deltaT;
+    // Fixed tick (decision 0008 D1.4): deltaT is the accelerated quantum, the game
+    // loop ran more ticks instead of a longer step; UI and camera get this tick's
+    // share of wall time. Variable step: deltaT is wall time until the acceleration
+    // multiply below.
+    float noAccDeltaT = _fixedTick && _acceleratedTime > 0 ? deltaT / _acceleratedTime : deltaT;
     UpdateInputContext();
     auto& input = InputSubsystem::Instance();
 
     // Viewer-mode controls run BEFORE the rest of the simulation step
     // so the viewer can consume scancodes (Esc, F5, Space, R, O, ?)
     // before any game-side handler sees them.  No-op outside viewer mode.
-    TickViewerControls(deltaT);
+    TickViewerControls(noAccDeltaT);
 
     OLink<Object> cameraVehicle = _cameraOn;
     OLink<Entity> camVehicle = dyn_cast<Entity, Object>(cameraVehicle);
@@ -210,7 +214,8 @@ void World::Simulate(float deltaT, bool& enableDraw)
                 // SetActiveChannels();
             }
         }
-        deltaT *= _acceleratedTime;
+        if (!_fixedTick)
+            deltaT *= _acceleratedTime;
     }
 
     if (input.CheatActivated() == CheatGodMode)

@@ -93,6 +93,11 @@ bool AppServerLoop()
     lastSysTime = sysTime;
     saturateMin(deltaT, 0.3);
 
+    // Fixed tick: bank the frame time and skip this frame, before any input is
+    // sampled, if no tick is due. Same contract as AppIdle (GameLoop.hpp).
+    if (!FixedTickFrameBegin(deltaT))
+        return false;
+
     bool focused = GApp->m_appActive && !GApp->m_appPaused && !GApp->m_appIconic;
 
     if (focused)
