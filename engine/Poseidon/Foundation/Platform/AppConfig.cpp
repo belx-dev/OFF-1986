@@ -580,6 +580,14 @@ void AppConfig::ParseCommandLine(int argc, char** argv)
         showOption(initGroup->add_flag("--render-frame-log", _renderFrameLog,
                                        "Log per-frame render-frame stats (pass/draw counts) every ~60 frames"),
                    CliHelpVisibility::Dev);
+        showOption(
+            initGroup->add_option("--render-frame-dump", _renderFrameDump,
+                                  "Write the first observed render Frame with >= 20 opaque mesh draws (camera, "
+                                  "draws, referenced vertex/index buffers) to this file; feeds the Vulkan spike"),
+            CliHelpVisibility::Dev);
+        showOption(initGroup->add_option("--render-frame-dump-after", _renderFrameDumpAfter,
+                                         "Seconds to wait before --render-frame-dump may fire (default 0)"),
+                   CliHelpVisibility::Dev);
 
         showOption(initGroup->add_flag("--piii", _enablePIII, "Enable Pentium III optimizations (flush-to-zero mode)"),
                    CliHelpVisibility::Dev);

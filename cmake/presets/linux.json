@@ -79,6 +79,15 @@
       }
     },
     {
+      "name": "linux-x64-clang-rwdi-vulkan",
+      "displayName": "Linux x64 Clang RelWithDebInfo + Vulkan spike",
+      "inherits": "linux-x64-clang-rwdi",
+      "cacheVariables": {
+        "POSEIDON_BUILD_VULKAN_SPIKE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "vulkan-spike"
+      }
+    },
+    {
       "name": "linux-x64-steamrt4",
       "displayName": "Linux x64 Steam Runtime 4 RelWithDebInfo",
       "inherits": "linux-clang-relwithdebinfo",

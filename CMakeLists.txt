@@ -182,6 +182,7 @@ option(POSEIDON_DISABLE_PCH "Disable precompiled headers (include self-containme
 # libFuzzer harnesses (network decoder). Off by default; the win-x64-clang-fuzz
 # preset turns it on. Requires a clang toolchain built with -fsanitize=fuzzer.
 option(POSEIDON_BUILD_FUZZERS "Build libFuzzer network harnesses" OFF)
+option(POSEIDON_BUILD_VULKAN_SPIKE "Build the offscreen Frame-on-Vulkan spike (needs vcpkg feature vulkan-spike)" OFF)
 
 configure_file(
     ${CMAKE_SOURCE_DIR}/cmake/BuildConfig.h.in
@@ -242,6 +243,9 @@ add_subdirectory(apps/tools/Tools)
 add_subdirectory(apps/tools/TcPbo)
 add_subdirectory(apps/tools/TcLister)
 add_subdirectory(apps/tools/Studio)
+if(POSEIDON_BUILD_VULKAN_SPIKE)
+    add_subdirectory(apps/tools/VulkanSpike)
+endif()
 add_subdirectory(tests/unit/apps/Studio)
 add_subdirectory(apps/tetris/Tetris)
 add_subdirectory(tests/unit/apps/Tetris)

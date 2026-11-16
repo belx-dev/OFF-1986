@@ -588,6 +588,7 @@ class EngineGL33 : public Engine
     RString GetRendererName() const override;
     size_t GetDrawItemCount() const override { return _drawItems.size(); }
     const std::vector<DrawItem>* GetRecordedDraws() const override { return &_drawItems; }
+    bool DumpFrameResources(const Poseidon::render::frame::Frame& frame, const char* path) override;
     unsigned int GetDebugErrorCount() const override;
     std::string GetLastDebugMessage() const override;
     int SampleBackBufferNonBlack() override;

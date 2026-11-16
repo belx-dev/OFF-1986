@@ -12,6 +12,10 @@ concrete GL33 + SDL3 backend. Selected via the engine's `GraphicsEngineFactory`
 - `TextureGL33.hpp` + `TextureBankGL33_*.cpp` — texture loading/caching.
 - `SDLEventWindow.hpp` — SDL window + input event abstraction.
 - `GLVertexAttribLayouts.hpp` — vertex format definitions.
+- `EngineGL33_FrameDump.cpp` — `--render-frame-dump`: serialises a built `Frame` plus the VAO/VBO/IBO
+  contents it references (format: `Poseidon/Graphics/Rendering/Frame/FrameDumpFormat.hpp`) for the Vulkan spike.
+  `_drawItems` (the per-frame draw record the frame observer reads) is cleared only in `InitDraw`; `BeginPass`
+  must not clear it or a 3D → screen-space → 3D frame loses its first segment.
 
 Depends on `Poseidon` and `OpenGL::GL`, with an embedded GLAD loader
 (see `thirdparty/glad`). Linked by GUI targets that request the GL33 backend

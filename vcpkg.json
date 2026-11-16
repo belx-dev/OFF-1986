@@ -54,5 +54,11 @@
       "name": "spdlog",
       "version": "1.15.1"
     }
-  ]
+  ],
+  "features": {
+    "vulkan-spike": {
+      "description": "Frame-on-Vulkan spike (apps/tools/VulkanSpike)",
+      "dependencies": ["vulkan-headers"]
+    }
+  }
 }
